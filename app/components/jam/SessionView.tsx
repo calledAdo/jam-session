@@ -355,12 +355,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const onUnstick = () => {
     sendToAgentChat({
       message: "Unstick me",
-      context: [
-        `Session id: ${sessionId}`,
-        selection
-          ? `Current selection: ${describeSelection(selection)} (bars 0-based ${selection.barStart}-${selection.barEnd})`
-          : "No selection.",
-      ].join("\n"),
+      context: JSON.stringify({ sessionId, selection }),
       submit: true,
       openSidebar: true,
     });
@@ -411,6 +406,24 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   }, [selection, sessionId]);
 
   useEffect(() => {
+    if (!data) return;
+    const { session } = data;
+    void writeClientAppState(
+      "transport",
+      {
+        sessionId,
+        bpm: session.bpm,
+        root: session.root,
+        scale: session.scale,
+        swing: session.swing,
+        bars: session.bars,
+        playing,
+      },
+      { requestSource: TAB_ID },
+    ).catch(() => undefined);
+  }, [data, sessionId, playing]);
+
+  useEffect(() => {
     void writeClientAppState(
       "audition",
       { ideaId: auditionId },
@@ -420,10 +433,12 @@ export function SessionView({ sessionId }: { sessionId: string }) {
 
   useEffect(
     () => () => {
-      void deleteClientAppState("selection", {
-        requestSource: TAB_ID,
-        keepalive: true,
-      }).catch(() => undefined);
+      for (const key of ["selection", "transport"]) {
+        void deleteClientAppState(key, {
+          requestSource: TAB_ID,
+          keepalive: true,
+        }).catch(() => undefined);
+      }
     },
     [],
   );

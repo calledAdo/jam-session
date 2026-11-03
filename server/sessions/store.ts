@@ -652,6 +652,18 @@ export async function getTasteForSession(
     .orderBy(desc(schema.taste.createdAt));
 }
 
+/** Most recent taste signals across all sessions (agent-facing). */
+export async function getRecentTaste(
+  limit = 30,
+  db: DbHandle = getDb(),
+): Promise<Array<typeof schema.taste.$inferSelect>> {
+  return db
+    .select()
+    .from(schema.taste)
+    .orderBy(desc(schema.taste.createdAt))
+    .limit(limit);
+}
+
 export async function getEditsForSession(
   sessionId: string,
   db: DbHandle = getDb(),
