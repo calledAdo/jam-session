@@ -1,4 +1,4 @@
-import { fail } from "@agent-native/core";
+import { NoWriteError, fail } from "@agent-native/core";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
@@ -382,6 +382,37 @@ function mutableTrackMap(tracks: Track[]): Map<TrackKind, MutableTrack> {
   );
 }
 
+function removeNoopEntries(
+  patch: PatchEntry[],
+  tracks: Track[],
+): PatchEntry[] {
+  const original = new Map(
+    tracks.map((track) => [track.kind, track.steps.slice()]),
+  );
+  const working = new Map(
+    tracks.map((track) => [track.kind, track.steps.slice()]),
+  );
+  const changedEntries: PatchEntry[] = [];
+
+  for (const entry of patch) {
+    const steps = working.get(entry.track);
+    if (!steps) {
+      inputError(`Track "${entry.track}" does not exist in this session.`);
+    }
+    if (
+      entry.steps.some((value, index) => steps[entry.fromStep + index] !== value)
+    ) {
+      changedEntries.push(entry);
+    }
+    steps.splice(entry.fromStep, entry.steps.length, ...entry.steps);
+  }
+
+  const changesGrid = TRACK_KINDS.some((track) =>
+    original.get(track)!.some((value, index) => value !== working.get(track)![index]),
+  );
+  return changesGrid ? changedEntries : [];
+}
+
 export type ApplyPatchInput = {
   sessionId: string;
   patch: unknown;
@@ -492,6 +523,37 @@ export async function proposeIdeas(
       `The idea tray holds at most ${MAX_PENDING_IDEAS} pending ideas. Propose fewer at once.`,
     );
   }
+
+  const tracks = await loadTracks(input.sessionId, db);
+  const rows = input.ideas.map((idea) => {
+    const author = idea.author?.trim();
+    const label = idea.label?.trim();
+    const rationale = idea.rationale?.trim();
+    if (!author) inputError("Every idea needs an author.");
+    if (!label) inputError("Every idea needs a label.");
+    if (!rationale) inputError("Every idea needs a one-line rationale.");
+
+    const normalized = normalizePatch(idea.patch, session.bars);
+    const patch = removeNoopEntries(normalized, tracks);
+    if (patch.length === 0) {
+      throw new NoWriteError(
+        "That idea doesn't change anything — propose something different",
+        { errorCode: "no_op_patch", statusCode: 400 },
+      );
+    }
+
+    return {
+      id: newId(),
+      sessionId: input.sessionId,
+      author,
+      label,
+      rationale,
+      patchJson: JSON.stringify(patch),
+      status: "pending" as const,
+      createdAt: "",
+    };
+  });
+
   // A full tray never blocks a new idea: the oldest pending cards slide out
   // (tossed without a taste signal, since the user never judged them).
   const overflow = pending.length + input.ideas.length - MAX_PENDING_IDEAS;
@@ -514,27 +576,10 @@ export async function proposeIdeas(
     0,
   );
   const baseTime = Math.max(Date.now(), latest + 1);
-  const rows = input.ideas.map((idea, index) => {
-    const author = idea.author?.trim();
-    const label = idea.label?.trim();
-    const rationale = idea.rationale?.trim();
-    if (!author) inputError("Every idea needs an author.");
-    if (!label) inputError("Every idea needs a label.");
-    if (!rationale) inputError("Every idea needs a one-line rationale.");
-
-    const patch = normalizePatch(idea.patch, session.bars);
-    return {
-      id: newId(),
-      sessionId: input.sessionId,
-      author,
-      label,
-      rationale,
-      patchJson: JSON.stringify(patch),
-      status: "pending" as const,
-      // Millisecond offsets keep a proposed batch in the order the agent sent
-      // it even though all cards land in the same tick.
-      createdAt: new Date(baseTime + index).toISOString(),
-    };
+  rows.forEach((row, index) => {
+    // Millisecond offsets keep a proposed batch in the order the agent sent
+    // it even though all cards land in the same tick.
+    row.createdAt = new Date(baseTime + index).toISOString();
   });
 
   await db.insert(schema.ideas).values(rows);
@@ -665,6 +710,7 @@ export async function undoLast(
 export async function revertToEdit(
   sessionId: string,
   editId: string,
+  author: string = "user",
   db: DbHandle = getDb(),
 ): Promise<SessionDetail & { revertedTo: Edit; revert: Edit }> {
   const result = await db.transaction(async (tx) => {
@@ -687,7 +733,7 @@ export async function revertToEdit(
     const revert: Edit = {
       id: newId(),
       sessionId,
-      author: "You",
+      author,
       patch,
       inverse,
       createdAt: nowIso(),

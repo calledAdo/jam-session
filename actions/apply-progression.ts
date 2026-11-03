@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import { applyProgression } from "../server/sessions/store.js";
 import {
-  authorSchema,
   barIndicesSchema,
   numeralsSchema,
 } from "./lib/session-schemas.js";
@@ -15,9 +14,11 @@ export default defineAction({
     sessionId: z.string().min(1).describe("Session id."),
     bars: barIndicesSchema,
     numerals: numeralsSchema,
-    author: authorSchema,
   }),
-  run: async (args) => {
-    return applyProgression(args);
+  run: async (args, ctx) => {
+    return applyProgression({
+      ...args,
+      author: ctx?.caller === "frontend" ? "user" : "agent",
+    });
   },
 });

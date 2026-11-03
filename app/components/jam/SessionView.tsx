@@ -393,7 +393,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         patchCells(base, patch),
       );
       setStepsM.mutate(
-        { sessionId, track, fromStep, steps, author: "You" },
+        { sessionId, track, fromStep, steps },
         {
           onError: (e: unknown) => {
             rollback();
@@ -452,7 +452,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       patchCells(data?.tracks ?? [], patch),
     );
     progressionM.mutate(
-      { sessionId, bars: [bar], numerals: [numeral], author: "You" },
+      { sessionId, bars: [bar], numerals: [numeral] },
       {
         onError: (e: unknown) => {
           rollback();
@@ -577,6 +577,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       ].join("\n"),
       submit: true,
       openSidebar: true,
+      chatTarget: "local",
     });
   };
 

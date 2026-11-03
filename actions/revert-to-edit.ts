@@ -10,5 +10,10 @@ export default defineAction({
     sessionId: z.string().min(1).describe("Session id."),
     editId: z.string().min(1).describe("Edit id to restore the session to."),
   }),
-  run: async ({ sessionId, editId }) => revertToEdit(sessionId, editId),
+  run: async ({ sessionId, editId }, ctx) =>
+    revertToEdit(
+      sessionId,
+      editId,
+      ctx?.caller === "frontend" ? "user" : "agent",
+    ),
 });

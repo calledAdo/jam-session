@@ -24,7 +24,7 @@ export default defineAction({
       .max(1)
       .describe("Energy from 0 (only downbeats) to 1 (every 16th, accented beats)."),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const { detail, pattern, bars } = await loadSessionPattern(args.sessionId);
     const before = stepsFor(pattern, args.track) as unknown as DrumSteps;
     const next = setEnergy(before, args.level, bars);
@@ -39,7 +39,7 @@ export default defineAction({
       track: args.track,
       fromStep: 0,
       steps: next.slice(0, bars * 16),
-      author: "agent",
+      author: ctx?.caller === "frontend" ? "user" : "agent",
     });
 
     return { ...updated, applied: true, patch };

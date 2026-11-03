@@ -2,11 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { setSteps } from "../server/sessions/store.js";
-import {
-  authorSchema,
-  stepsSchema,
-  trackKindSchema,
-} from "./lib/session-schemas.js";
+import { stepsSchema, trackKindSchema } from "./lib/session-schemas.js";
 
 export default defineAction({
   description:
@@ -20,9 +16,11 @@ export default defineAction({
       .min(0)
       .describe("Zero-based step index where the run starts."),
     steps: stepsSchema,
-    author: authorSchema,
   }),
-  run: async (args) => {
-    return setSteps(args);
+  run: async (args, ctx) => {
+    return setSteps({
+      ...args,
+      author: ctx?.caller === "frontend" ? "user" : "agent",
+    });
   },
 });

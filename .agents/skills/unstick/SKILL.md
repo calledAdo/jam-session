@@ -14,6 +14,7 @@ description: Use when the user presses "Unstick me" or says they're stuck, bored
 4. Delegate to three sub-agents in parallel (agent teams), one per bandmate. Each makes exactly one idea and calls `propose-ideas` with `author` set to its role:
    - **Drummer** — kick/snare/hat only (`add-fill`, `vary-pattern`, `transform simplify`).
    - **Bassist** — bass only (`vary-pattern`, `transform darker/brighter`).
-   - **Keys** — chords only (`apply-progression`).
+   - **Keys** — chords only: call read-only `progression-patch`, then pass its patch to `propose-ideas`. Never call `apply-progression` unless the user explicitly asked to apply the progression.
    Give each sub-agent the session id, the diagnosis, the selection (if any), and the user's taste notes.
-5. Finish with: "Three ideas in the tray — audition them and keep what moves you." Don't apply anything yourself.
+5. Before proposing, compare each patch with the current grid. Drop unchanged entries; if a patch would make no change, generate a different idea instead.
+6. Finish with: "Three ideas in the tray — audition them and keep what moves you." Don't apply anything yourself.
