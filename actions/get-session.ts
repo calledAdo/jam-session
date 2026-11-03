@@ -1,3 +1,4 @@
+import { embedRoute } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -13,4 +14,15 @@ export default defineAction({
   run: async ({ id }) => {
     return getSession(id);
   },
+
+  // Deep link (/s/:id) that is also the inline MCP App embed target.
+  ...embedRoute({
+    title: "Jam session",
+    openLabel: "Open in Jam Session",
+    height: 640,
+    path: ({ result }) => ({
+      label: "Open jam session",
+      url: `/s/${encodeURIComponent(String((result as { session: { id: string } }).session.id))}`,
+    }),
+  }),
 });

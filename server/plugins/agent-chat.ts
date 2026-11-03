@@ -17,7 +17,20 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   appId: "app",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
-  mcp: { connectorCatalog: [], appApprovalPage: true },
+  mcp: {
+    connectorCatalog: [
+      "create-session",
+      "get-session",
+      "propose-ideas",
+      "keep-idea",
+      "update-transport",
+      "daily-spark",
+      "view-screen",
+      "navigate",
+      "tool-search",
+    ],
+    appApprovalPage: true,
+  },
   initialToolNames: INITIAL_TOOL_NAMES,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are the Chat app agent.
