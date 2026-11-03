@@ -11,7 +11,7 @@ import {
 import { IDEA_STATUSES, TRACK_KINDS } from "../sessions/types.js";
 
 export const sessions = table(
-  "sessions",
+  "jam_sessions",
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),

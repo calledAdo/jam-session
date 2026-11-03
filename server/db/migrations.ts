@@ -1,11 +1,7 @@
 import { runMigrations } from "@agent-native/core/db";
 
-/**
- * The full first-revision schema for Jam Session. Kept as one string so tests
- * can build the same schema in an in-memory PGlite database.
- */
-export const INITIAL_SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS sessions (
+const JAM_SESSIONS_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS jam_sessions (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   bpm INTEGER NOT NULL DEFAULT 90,
@@ -15,7 +11,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   bars INTEGER NOT NULL DEFAULT 8,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions (created_at);
+CREATE INDEX IF NOT EXISTS idx_jam_sessions_created_at ON jam_sessions (created_at);
+`;
+
+/**
+ * The full first-revision schema for Jam Session. Kept as one string so tests
+ * can build the same schema in an in-memory PGlite database.
+ */
+export const INITIAL_SCHEMA_SQL = `
+${JAM_SESSIONS_TABLE_SQL}
 CREATE TABLE IF NOT EXISTS tracks (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,
@@ -61,6 +65,13 @@ export const sessionMigrations = [
     version: 1,
     name: "jam-session-initial-schema",
     sql: INITIAL_SCHEMA_SQL,
+  },
+  {
+    // The framework owns a `sessions` table (auth). Databases that ran v1
+    // before the rename never got our table, so create it explicitly.
+    version: 2,
+    name: "jam-sessions-table",
+    sql: JAM_SESSIONS_TABLE_SQL,
   },
 ];
 

@@ -6,7 +6,7 @@
   "doctor": {
     "failOnBuild": false,
     "dbToolScopingDenylist": {
-      "sessions": "Single-user jam workspace: DESIGN.md defines sessions as local projects without an owner/tenant model, so T02 stores no owner_email/org_id — reviewed 2026-11-03.",
+      "jam_sessions": "Single-user jam workspace: DESIGN.md defines sessions as local projects without an owner/tenant model, so T02 stores no owner_email/org_id — reviewed 2026-11-03.",
       "tracks": "Grid tracks belong to a session row and inherit its scope; no independent tenant owner — reviewed 2026-11-03.",
       "ideas": "Ideas belong to a session row and inherit its scope; no independent tenant owner — reviewed 2026-11-03.",
       "taste": "Taste signals are appended for the local session's learning loop, not per-user profile data — reviewed 2026-11-03.",
