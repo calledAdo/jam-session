@@ -3,5 +3,6 @@ export * from "./random";
 export * from "./notes";
 export * from "./patch";
 export * from "./generate";
+export * from "./energy";
 export * from "./analyze";
 export * from "./seed";
