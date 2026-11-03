@@ -18,6 +18,7 @@ export interface NavigationState {
   path?: string;
   publicPath?: string;
   threadId?: string;
+  sessionId?: string;
 }
 
 export function useNavigationState() {
@@ -64,7 +65,9 @@ function matchesPathPrefix(pathname: string, prefix: string): boolean {
 
 export function navigationStateForPath(pathname: string): NavigationState {
   const threadId = threadIdFromPath(pathname);
+  const sessionId = sessionIdFromPath(pathname);
   return {
+    ...(sessionId ? { sessionId } : {}),
     view: viewForPath(pathname),
     path: pathname,
     publicPath: appPathFromLocalRoute(pathname),
@@ -72,7 +75,19 @@ export function navigationStateForPath(pathname: string): NavigationState {
   };
 }
 
+export function sessionIdFromPath(pathname: string): string | null {
+  const encoded = pathname.match(/^\/s\/([^/]+)/)?.[1];
+  if (!encoded) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
+}
+
 function viewForPath(pathname: string): string {
+  if (sessionIdFromPath(pathname)) return "session";
+  if (pathname === "/") return "jams";
   if (isChatPathname(pathname)) return "chat";
   if (pathname === HOME_PATH) return "home";
   if (pathname.startsWith("/database")) return "database";
@@ -111,6 +126,10 @@ function pathForView(view?: string): string {
 }
 
 export function pathForCommand(command: any): string {
+  if (command?.view === "session" && typeof command?.sessionId === "string") {
+    return `/s/${encodeURIComponent(command.sessionId)}`;
+  }
+  if (command?.view === "jams") return "/";
   const path = pathForView(command?.view);
   if (command?.view !== "chat" && command?.view !== "ask") return path;
   const threadId =

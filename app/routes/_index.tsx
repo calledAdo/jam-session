@@ -1,1 +1,9 @@
-export { signInLandingLoader as loader } from "@agent-native/core/client/sign-in-landing";
+import { JamHome } from "@/components/jam/JamHome";
+
+export function meta() {
+  return [{ title: "Jam Session" }];
+}
+
+export default function IndexRoute() {
+  return <JamHome />;
+}

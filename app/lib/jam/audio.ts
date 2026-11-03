@@ -1,0 +1,243 @@
+/**
+ * Tone.js playback engine. Browser-only: Tone is imported lazily so SSR never
+ * touches the Web Audio API. The engine reads the latest grid from `setState`
+ * on every tick, so edits are heard immediately without rebuilding anything.
+ */
+import type * as ToneNS from "tone";
+
+import {
+  degreeToNote,
+  romanToChord,
+} from "../../../server/music/notes";
+import { STEPS_PER_BAR, type StepValue, type TrackData } from "./grid";
+
+export type EngineState = {
+  bpm: number;
+  swing: number;
+  root: string;
+  scale: string;
+  bars: number;
+  tracks: TrackData[];
+};
+
+const VELOCITY = [0, 0.45, 0.75, 1];
+
+type Listener = (step: number) => void;
+
+export class JamEngine {
+  private Tone: typeof ToneNS | null = null;
+  private initPromise: Promise<void> | null = null;
+  private state: EngineState | null = null;
+  private counter = 0;
+  private eventId: number | null = null;
+  private listeners = new Set<Listener>();
+  playing = false;
+
+  private kick!: ToneNS.MembraneSynth;
+  private snare!: ToneNS.NoiseSynth;
+  private hat!: ToneNS.NoiseSynth;
+  private bass!: ToneNS.MonoSynth;
+  private keys!: ToneNS.PolySynth;
+
+  /** Must be called from a user gesture the first time. */
+  init(): Promise<void> {
+    if (!this.initPromise) this.initPromise = this.build();
+    return this.initPromise;
+  }
+
+  private async build(): Promise<void> {
+    const Tone = await import("tone");
+    this.Tone = Tone;
+    await Tone.start();
+
+    const master = new Tone.Limiter(-2).toDestination();
+
+    this.kick = new Tone.MembraneSynth({
+      pitchDecay: 0.04,
+      octaves: 6,
+      envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.1 },
+    }).connect(master);
+    this.kick.volume.value = -4;
+
+    const snareFilter = new Tone.Filter(1800, "highpass").connect(master);
+    this.snare = new Tone.NoiseSynth({
+      noise: { type: "pink" },
+      envelope: { attack: 0.001, decay: 0.17, sustain: 0, release: 0.05 },
+    }).connect(snareFilter);
+    this.snare.volume.value = -8;
+
+    const hatFilter = new Tone.Filter(7500, "highpass").connect(master);
+    this.hat = new Tone.NoiseSynth({
+      noise: { type: "white" },
+      envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.01 },
+    }).connect(hatFilter);
+    this.hat.volume.value = -18;
+
+    const bassFilter = new Tone.Filter(520, "lowpass").connect(master);
+    this.bass = new Tone.MonoSynth({
+      oscillator: { type: "sawtooth" },
+      envelope: { attack: 0.01, decay: 0.2, sustain: 0.5, release: 0.15 },
+      filterEnvelope: {
+        attack: 0.01,
+        decay: 0.2,
+        sustain: 0.3,
+        release: 0.2,
+        baseFrequency: 120,
+        octaves: 2.5,
+      },
+    }).connect(bassFilter);
+    this.bass.volume.value = -6;
+
+    const reverb = new Tone.Reverb({ decay: 2.2, wet: 0.2 });
+    await reverb.generate();
+    reverb.connect(master);
+    const lofi = new Tone.Filter(1600, "lowpass").connect(reverb);
+    this.keys = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.04, decay: 0.3, sustain: 0.4, release: 0.8 },
+    }).connect(lofi);
+    this.keys.volume.value = -14;
+
+    Tone.getTransport().scheduleRepeat((time) => this.tick(time), "16n");
+    this.applyTransport();
+  }
+
+  setState(state: EngineState): void {
+    this.state = state;
+    this.applyTransport();
+  }
+
+  private applyTransport(): void {
+    if (!this.Tone || !this.state) return;
+    const transport = this.Tone.getTransport();
+    transport.bpm.value = this.state.bpm;
+    transport.swing = this.state.swing;
+  }
+
+  onStep(listener: Listener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  async start(): Promise<void> {
+    await this.init();
+    if (!this.Tone || this.playing) return;
+    this.counter = 0;
+    this.playing = true;
+    this.applyTransport();
+    this.Tone.getTransport().start("+0.05");
+  }
+
+  stop(): void {
+    if (!this.Tone || !this.playing) return;
+    const transport = this.Tone.getTransport();
+    transport.stop();
+    transport.position = 0;
+    this.playing = false;
+    this.counter = 0;
+    for (const listener of this.listeners) listener(-1);
+  }
+
+  private tick(time: number): void {
+    const Tone = this.Tone;
+    const state = this.state;
+    if (!Tone || !state) return;
+    const total = state.bars * STEPS_PER_BAR;
+    const step = this.counter % total;
+    this.counter += 1;
+
+    for (const track of state.tracks) {
+      if (track.muted) continue;
+      const value = track.steps[track.kind === "keys" ? Math.floor(step / STEPS_PER_BAR) : step];
+      if (track.kind === "keys") {
+        if (step % STEPS_PER_BAR === 0) this.playValue(track.kind, value, time, state);
+      } else {
+        this.playValue(track.kind, value, time, state);
+      }
+    }
+
+    Tone.getDraw().schedule(() => {
+      if (!this.playing) return;
+      for (const listener of this.listeners) listener(step);
+    }, time);
+  }
+
+  private playValue(
+    kind: TrackData["kind"],
+    value: StepValue | undefined,
+    time: number,
+    state: EngineState,
+  ): void {
+    if (value === null || value === undefined || value === 0) return;
+    const vel = typeof value === "number" ? (VELOCITY[value] ?? 0.75) : 0.75;
+    try {
+      switch (kind) {
+        case "kick":
+          this.kick.triggerAttackRelease("C1", "8n", time, vel);
+          break;
+        case "snare":
+          this.snare.triggerAttackRelease("16n", time, vel);
+          break;
+        case "hat":
+          this.hat.triggerAttackRelease("32n", time, vel);
+          break;
+        case "bass":
+          if (typeof value === "number") {
+            this.bass.triggerAttackRelease(
+              degreeToNote(state.root, state.scale, value, 2),
+              "8n",
+              time,
+              0.9,
+            );
+          }
+          break;
+        case "keys":
+          if (typeof value === "string") {
+            this.keys.triggerAttackRelease(
+              romanToChord(state.root, state.scale, value, 3),
+              "1m",
+              time,
+              0.6,
+            );
+          }
+          break;
+      }
+    } catch {
+      // A bad numeral or note must never stop the loop.
+    }
+  }
+
+  /** Immediate one-shot so a clicked cell is heard even when stopped. */
+  async preview(kind: TrackData["kind"], value: StepValue): Promise<void> {
+    await this.init();
+    if (!this.Tone || !this.state) return;
+    const state = this.state;
+    const time = this.Tone.now();
+    if (kind === "keys" && typeof value === "string") {
+      try {
+        this.keys.triggerAttackRelease(
+          romanToChord(state.root, state.scale, value, 3),
+          "2n",
+          time,
+          0.6,
+        );
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    this.playValue(kind, value, time, state);
+  }
+
+  dispose(): void {
+    this.stop();
+  }
+}
+
+let shared: JamEngine | null = null;
+export function getJamEngine(): JamEngine {
+  shared ??= new JamEngine();
+  return shared;
+}

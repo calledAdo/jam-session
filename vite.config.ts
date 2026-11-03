@@ -8,6 +8,9 @@ const agentNativePlugins = agentNative as unknown as (
 ) => any[];
 export default defineConfig({
   optimizeDeps: {
+    // Tone is imported lazily on the first Play click; pre-bundle it so its
+    // CJS deps (automation-events) are interop'd before the dev server sees it.
+    include: ["tone"],
     entries: [
       "app/entry.client.tsx",
       "app/root.tsx",
