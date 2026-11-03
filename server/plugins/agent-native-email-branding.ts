@@ -1,6 +1,9 @@
 import { defineAppConfig } from "@agent-native/core/server";
 
 export default defineAppConfig({
+  integrations: {
+    platforms: ["telegram"],
+  },
   app: {
     // This name appears in transactional emails. Change it to your product name.
     name: "App",
