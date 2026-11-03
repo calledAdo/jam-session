@@ -100,12 +100,24 @@ describe("progression-patch", () => {
       },
       { caller: "frontend" },
     );
+    await expect(
+      setSteps.run(
+        {
+          sessionId: session.session.id,
+          track: "kick",
+          fromStep: 1,
+          steps: [2],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toThrow(/propose-ideas/);
     await setSteps.run(
       {
         sessionId: session.session.id,
         track: "kick",
         fromStep: 1,
         steps: [2],
+        confirmApply: true,
       },
       { caller: "tool" },
     );
