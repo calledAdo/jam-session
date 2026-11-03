@@ -58,26 +58,48 @@ async function ensureHatEnergy(): Promise<ExtensionSummary> {
   return seeding;
 }
 
-export function ControlsStrip({ sessionId }: { sessionId: string }) {
-  const { data, isError } = useQuery({
+export function ControlsStrip({
+  sessionId,
+  energy,
+}: {
+  sessionId: string;
+  energy: number;
+}) {
+  const { data, isError, isLoading, refetch } = useQuery({
     queryKey: ["jam", "hat-energy-extension"],
     queryFn: ensureHatEnergy,
     staleTime: Infinity,
     retry: 1,
   });
 
-  if (isError || !data) return null;
   return (
-    <div className="jam-panel flex flex-wrap items-stretch gap-3 px-3 py-2">
-      <span className="jam-label self-center">Controls</span>
-      <div style={{ width: 240 }}>
-        <EmbeddedExtension
-          extensionId={data.id}
-          slotId={CONTROLS_SLOT_ID}
-          context={{ sessionId, track: "hat" }}
-          initialHeight={64}
-        />
-      </div>
+    <div className="jam-controls-strip">
+      <span className="jam-controls-strip__title">CONTROL EXTENSION</span>
+      {isLoading ? (
+        <span className="jam-controls-strip__error" role="status">
+          Loading hat control...
+        </span>
+      ) : isError || !data ? (
+        <span className="jam-controls-strip__error" role="status">
+          Hat control unavailable
+          <button
+            className="jam-text-button"
+            type="button"
+            onClick={() => void refetch()}
+          >
+            Retry
+          </button>
+        </span>
+      ) : (
+        <div className="jam-controls-strip__extension">
+          <EmbeddedExtension
+            extensionId={data.id}
+            slotId={CONTROLS_SLOT_ID}
+            context={{ sessionId, track: "hat", energy }}
+            initialHeight={64}
+          />
+        </div>
+      )}
     </div>
   );
 }

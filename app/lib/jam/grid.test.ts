@@ -1,65 +1,67 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  applyPatchToTracks,
-  BAR_PITCH,
-  cycleVelocity,
-  describeSelection,
-  diffCells,
-  patchCells,
-  selectionFromCorners,
-  shiftBassDegree,
-  stepX,
-  toggleBass,
-  toggleDrum,
-  type TrackData,
-} from "./grid";
+import { activeStepRatio, patchPreviewRows, type TrackData } from "./grid";
 
-const tracks = (): TrackData[] => [
-  { kind: "kick", steps: [1, 0, 0, 0] },
-  { kind: "bass", steps: [null, 3, null, null] },
-];
+describe("activeStepRatio", () => {
+  it("returns the proportion of active numeric steps", () => {
+    expect(activeStepRatio([0, 1, null, 2, "i"])).toBe(0.4);
+  });
 
-describe("grid helpers", () => {
-  it("applies a patch without mutating the input", () => {
-    const base = tracks();
-    const next = applyPatchToTracks(base, [
-      { track: "kick", fromStep: 2, steps: [3, 3, 3] },
+  it("returns zero for an empty track", () => {
+    expect(activeStepRatio([])).toBe(0);
+  });
+});
+
+describe("patchPreviewRows", () => {
+  it("groups changed cells by track and zero-based bar", () => {
+    const tracks: TrackData[] = [
+      {
+        kind: "kick",
+        steps: Array.from({ length: 32 }, (_, index) => (index === 17 ? 1 : 0)),
+      },
+      { kind: "keys", steps: ["i", "VI"] },
+    ];
+
+    expect(
+      patchPreviewRows(tracks, [
+        { track: "kick", fromStep: 17, steps: [2, 1] },
+        { track: "keys", fromStep: 1, steps: ["VII"] },
+      ]),
+    ).toEqual([
+      {
+        track: "kick",
+        bar: 1,
+        before: Array.from({ length: 16 }, (_, index) => (index === 1 ? 1 : 0)),
+        after: Array.from({ length: 16 }, (_, index) =>
+          index === 1 ? 2 : index === 2 ? 1 : 0,
+        ),
+        changed: [1, 2],
+      },
+      {
+        track: "keys",
+        bar: 1,
+        before: ["VI"],
+        after: ["VII"],
+        changed: [0],
+      },
     ]);
-    expect(next[0]!.steps).toEqual([1, 0, 3, 3]);
-    expect(base[0]!.steps).toEqual([1, 0, 0, 0]);
   });
 
-  it("diffs and reports patch cells", () => {
-    const base = tracks();
-    const patch = [{ track: "bass" as const, fromStep: 0, steps: [2, 3] }];
-    expect(patchCells(base, patch)).toEqual(["bass:0"]);
-    expect(diffCells(base, applyPatchToTracks(base, patch))).toEqual(["bass:0"]);
-  });
+  it("omits no-op and out-of-range patch cells", () => {
+    const tracks: TrackData[] = [{ kind: "hat", steps: [0, 1] }];
 
-  it("cycles velocity and toggles", () => {
-    expect([0, 1, 2, 3].map(cycleVelocity)).toEqual([1, 2, 3, 1]);
-    expect(toggleDrum(0)).toBe(2);
-    expect(toggleDrum(3)).toBe(0);
-    expect(toggleBass(null)).toBe(1);
-    expect(toggleBass(4)).toBeNull();
-  });
-
-  it("clamps bass degrees", () => {
-    expect(shiftBassDegree(1, -1)).toBe(1);
-    expect(shiftBassDegree(10, 1)).toBe(10);
-    expect(shiftBassDegree(3, 2)).toBe(5);
-  });
-
-  it("orders selection corners and labels bars 1-based", () => {
-    const sel = selectionFromCorners({ row: 3, bar: 3 }, { row: 2, bar: 2 });
-    expect(sel).toEqual({ tracks: ["hat", "bass"], barStart: 2, barEnd: 3 });
-    expect(describeSelection(sel)).toBe("hat+bass bars 3-4");
-  });
-
-  it("computes step x offsets", () => {
-    expect(stepX(0)).toBe(0);
-    expect(stepX(16)).toBe(BAR_PITCH);
-    expect(stepX(5)).toBeGreaterThan(stepX(4));
+    expect(
+      patchPreviewRows(tracks, [
+        { track: "hat", fromStep: 0, steps: [0, 2, 1] },
+      ]),
+    ).toEqual([
+      {
+        track: "hat",
+        bar: 0,
+        before: [0, 1],
+        after: [0, 2],
+        changed: [1],
+      },
+    ]);
   });
 });

@@ -507,7 +507,13 @@ export async function proposeIdeas(
       );
   }
 
-  const baseTime = Date.now();
+  // Keep new ideas strictly after existing ones, even within the same
+  // millisecond, so "oldest pending" is well defined.
+  const latest = pending.reduce(
+    (max, idea) => Math.max(max, Date.parse(idea.createdAt)),
+    0,
+  );
+  const baseTime = Math.max(Date.now(), latest + 1);
   const rows = input.ideas.map((idea, index) => {
     const author = idea.author?.trim();
     const label = idea.label?.trim();

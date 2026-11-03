@@ -1,3 +1,4 @@
+import { IconArrowUpRight, IconMinus, IconPlus } from "@tabler/icons-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { getJamEngine } from "@/lib/jam/audio";
@@ -17,9 +18,9 @@ import {
 
 import "./jam.css";
 
-const ROW_H = 38;
+const ROW_H = 32;
 const ROW_PITCH = 44;
-const HEADER_H = 24;
+const HEADER_H = 34;
 const ROW_LABELS: Record<TrackKind, string> = {
   kick: "KICK",
   snare: "SNARE",
@@ -28,7 +29,12 @@ const ROW_LABELS: Record<TrackKind, string> = {
   keys: "KEYS",
 };
 
-export type SelectionAction = "vary" | "fill" | "simplify" | "darker" | "brighter";
+export type SelectionAction =
+  | "vary"
+  | "fill"
+  | "simplify"
+  | "darker"
+  | "brighter";
 
 function rowTop(row: number): number {
   return HEADER_H + row * ROW_PITCH;
@@ -42,6 +48,7 @@ const Cell = memo(function Cell({
   alt,
   flash,
   ghost,
+  onFocus,
 }: {
   kind: TrackKind;
   row: number;
@@ -50,24 +57,36 @@ const Cell = memo(function Cell({
   alt: boolean;
   flash: boolean;
   ghost: boolean;
+  onFocus?: () => void;
 }) {
   const on = typeof value === "number" && value > 0;
+  const label =
+    kind === "bass"
+      ? `${ROW_LABELS[kind]} step ${index + 1}, ${on ? `scale degree ${value}` : "off"}`
+      : `${ROW_LABELS[kind]} step ${index + 1}, ${on ? "on" : "off"}`;
+
   return (
-    <span
+    <button
+      type="button"
       className="jam-cell jam-mono"
       data-cell
       data-row={row}
       data-index={index}
+      data-kind={kind}
       data-on={on && !ghost ? "true" : undefined}
       data-v={on && kind !== "bass" ? String(value) : undefined}
       data-alt={alt ? "true" : undefined}
       data-flash={flash ? "true" : undefined}
       data-ghost={ghost ? "true" : undefined}
       data-removed={ghost && !on ? "true" : undefined}
-      title={`${ROW_LABELS[kind]} step ${index + 1}`}
+      title={`${label}${kind === "bass" ? " · use the visible degree stepper, or scroll to transpose" : " · Shift-click changes velocity"}`}
+      aria-label={label}
+      aria-pressed={on}
+      onFocus={onFocus}
+      onPointerEnter={onFocus}
     >
       {kind === "bass" && on ? value : null}
-    </span>
+    </button>
   );
 });
 
@@ -78,6 +97,7 @@ const StepRow = memo(function StepRow({
   bars,
   flashing,
   ghosts,
+  onFocusCell,
 }: {
   kind: TrackKind;
   row: number;
@@ -85,14 +105,15 @@ const StepRow = memo(function StepRow({
   bars: number;
   flashing: ReadonlySet<string>;
   ghosts: ReadonlySet<string>;
+  onFocusCell?: (index: number) => void;
 }) {
   const out = [];
   for (let bar = 0; bar < bars; bar++) {
     const groups = [];
-    for (let g = 0; g < 4; g++) {
+    for (let group = 0; group < 4; group++) {
       const cells = [];
-      for (let c = 0; c < 4; c++) {
-        const index = bar * STEPS_PER_BAR + g * 4 + c;
+      for (let cell = 0; cell < 4; cell++) {
+        const index = bar * STEPS_PER_BAR + group * 4 + cell;
         const key = `${kind}:${index}`;
         cells.push(
           <Cell
@@ -101,14 +122,17 @@ const StepRow = memo(function StepRow({
             row={row}
             index={index}
             value={steps[index]}
-            alt={g % 2 === 1}
+            alt={group % 2 === 1}
             flash={flashing.has(key)}
             ghost={ghosts.has(key)}
+            {...(kind === "bass" && onFocusCell
+              ? { onFocus: () => onFocusCell(index) }
+              : {})}
           />,
         );
       }
       groups.push(
-        <span className="jam-group" key={g}>
+        <span className="jam-step-group" key={group}>
           {cells}
         </span>,
       );
@@ -121,7 +145,9 @@ const StepRow = memo(function StepRow({
   }
   return (
     <div
-      style={{ position: "absolute", top: rowTop(row), height: ROW_H, left: 0 }}
+      className="jam-grid-row"
+      data-track-row={kind}
+      style={{ top: rowTop(row), height: ROW_H }}
     >
       {out}
     </div>
@@ -129,44 +155,55 @@ const StepRow = memo(function StepRow({
 });
 
 const KeysRow = memo(function KeysRow({
-  row,
   steps,
   bars,
   flashing,
   ghosts,
+  choices,
+  onPickChord,
 }: {
-  row: number;
   steps: StepValue[];
   bars: number;
   flashing: ReadonlySet<string>;
   ghosts: ReadonlySet<string>;
+  choices: string[];
+  onPickChord: (bar: number, numeral: string | null) => void;
 }) {
-  const out = [];
-  for (let bar = 0; bar < bars; bar++) {
-    const value = steps[bar];
-    const key = `keys:${bar}`;
-    out.push(
-      <span className="jam-bar" key={bar}>
-        <span
-          className="jam-chip jam-mono"
-          data-cell
-          data-row={row}
-          data-index={bar}
-          data-on={typeof value === "string" ? "true" : undefined}
-          data-flash={flashing.has(key) ? "true" : undefined}
-          data-ghost={ghosts.has(key) ? "true" : undefined}
-          title={`Chord, bar ${bar + 1}`}
-        >
-          {typeof value === "string" ? value : "+"}
-        </span>
-      </span>,
-    );
-  }
   return (
     <div
-      style={{ position: "absolute", top: rowTop(row), height: ROW_H, left: 0 }}
+      className="jam-grid-row jam-grid-row--keys"
+      data-track-row="keys"
+      style={{ top: rowTop(4), height: ROW_H }}
     >
-      {out}
+      {Array.from({ length: bars }, (_, bar) => {
+        const value = steps[bar];
+        const key = `keys:${bar}`;
+        return (
+          <span className="jam-bar" key={bar}>
+            <select
+              className="jam-chord-select jam-mono"
+              data-cell
+              data-direct-control
+              data-row="4"
+              data-index={bar}
+              data-ghost={ghosts.has(key) ? "true" : undefined}
+              data-flash={flashing.has(key) ? "true" : undefined}
+              data-on={typeof value === "string" ? "true" : undefined}
+              title={`Change chord for bar ${bar + 1}`}
+              aria-label={`Chord for bar ${bar + 1}: ${typeof value === "string" ? value : "off"}`}
+              value={typeof value === "string" ? value : ""}
+              onChange={(event) => onPickChord(bar, event.target.value || null)}
+            >
+              <option value="">Off</option>
+              {choices.map((numeral) => (
+                <option key={numeral} value={numeral}>
+                  {numeral}
+                </option>
+              ))}
+            </select>
+          </span>
+        );
+      })}
     </div>
   );
 });
@@ -184,7 +221,10 @@ function Playhead({
     const scroller = scrollerRef.current;
     if (!follow || !scroller || step < 0 || step % STEPS_PER_BAR !== 0) return;
     const x = stepX(step);
-    if (x < scroller.scrollLeft || x > scroller.scrollLeft + scroller.clientWidth - BAR_PITCH) {
+    if (
+      x < scroller.scrollLeft ||
+      x > scroller.scrollLeft + scroller.clientWidth - BAR_PITCH
+    ) {
       scroller.scrollTo({ left: Math.max(0, x - 8), behavior: "smooth" });
     }
   }, [step, scrollerRef, follow]);
@@ -192,11 +232,8 @@ function Playhead({
   return (
     <div
       className="jam-playhead"
-      style={{
-        left: stepX(step),
-        height: 5 * ROW_PITCH - 6,
-        width: CELL_W,
-      }}
+      style={{ left: stepX(step), height: 5 * ROW_PITCH, width: CELL_W }}
+      aria-hidden="true"
     />
   );
 }
@@ -222,100 +259,106 @@ export function Grid(props: GridProps) {
   const { tracks, bars, selection, onSelect } = props;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  const [picker, setPicker] = useState<number | null>(null);
   const latest = useRef(props);
+  const [bassIndex, setBassIndex] = useState(0);
   latest.current = props;
 
-  const trackByKind = (kind: TrackKind) => tracks.find((t) => t.kind === kind);
+  const trackByKind = (kind: TrackKind) =>
+    tracks.find((track) => track.kind === kind);
+  const bassValue = trackByKind("bass")?.steps[bassIndex];
+  const bassDegree =
+    typeof bassValue === "number" && bassValue > 0 ? bassValue : "-";
 
-  // Bass scroll-wheel: needs a non-passive listener to stop page scrolling.
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
-    let acc = 0;
+    let accumulator = 0;
     const onWheel = (event: WheelEvent) => {
-      const cell = (event.target as HTMLElement | null)?.closest?.<HTMLElement>(
+      const cell = (event.target as HTMLElement | null)?.closest<HTMLElement>(
         "[data-cell]",
       );
-      if (!cell || cell.dataset.row !== "3") return;
+      if (
+        !cell ||
+        cell.dataset.row !== "3" ||
+        cell.dataset.directControl !== undefined
+      )
+        return;
       event.preventDefault();
-      acc += event.deltaY;
-      if (Math.abs(acc) < 40) return;
-      const delta = acc < 0 ? 1 : -1; // wheel up = higher degree
-      acc = 0;
-      latest.current.onBassWheel(Number(cell.dataset.index), delta);
+      accumulator += event.deltaY;
+      if (Math.abs(accumulator) < 40) return;
+      const delta = accumulator < 0 ? 1 : -1;
+      accumulator = 0;
+      const index = Number(cell.dataset.index);
+      setBassIndex(index);
+      latest.current.onBassWheel(index, delta);
     };
     body.addEventListener("wheel", onWheel, { passive: false });
     return () => body.removeEventListener("wheel", onWheel);
   }, []);
 
-  useEffect(() => {
-    if (picker === null) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!(event.target as HTMLElement | null)?.closest(".jam-picker")) {
-        setPicker(null);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPicker(null);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [picker]);
-
   const cellFromEvent = (target: EventTarget | null) => {
-    const el = (target as HTMLElement | null)?.closest?.<HTMLElement>(
+    const element = (target as HTMLElement | null)?.closest<HTMLElement>(
       "[data-cell]",
     );
-    if (!el) return null;
-    const row = Number(el.dataset.row);
-    const index = Number(el.dataset.index);
+    if (!element) return null;
+    const row = Number(element.dataset.row);
+    const index = Number(element.dataset.index);
     const bar = row === 4 ? index : Math.floor(index / STEPS_PER_BAR);
-    return { row, index, bar, rect: el.getBoundingClientRect() };
+    return { row, index, bar };
   };
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent) => {
       if (event.button !== 0) return;
-      if ((event.target as HTMLElement).closest("[data-overlay]")) return;
-      if ((event.target as HTMLElement).closest("[data-bar-header]")) return;
-      const start = cellFromEvent(event.target);
-      setPicker(null);
+      const target = event.target as HTMLElement;
+      if (
+        target.closest(
+          "[data-overlay], [data-bar-header], [data-direct-control]",
+        )
+      )
+        return;
+      const start = cellFromEvent(target);
       if (!start) {
         onSelect(null);
         return;
       }
-      const shift = event.shiftKey;
-      let moved = false;
+
       const optionDrag = event.altKey;
-      const move = (e: PointerEvent) => {
-        const cur = cellFromEvent(document.elementFromPoint(e.clientX, e.clientY));
-        if (!cur) return;
-        if (!moved && (cur.row !== start.row || cur.bar !== start.bar)) {
+      let moved = false;
+      const move = (pointerEvent: PointerEvent) => {
+        const current = cellFromEvent(
+          document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY),
+        );
+        if (!current) return;
+        if (current.row !== start.row || current.bar !== start.bar)
           moved = true;
-        }
         if (moved) {
-          latest.current.onSelect(optionDrag
-            ? { tracks: [...TRACK_ORDER], barStart: start.bar, barEnd: start.bar }
-            : selectionFromCorners(start, cur));
+          latest.current.onSelect(
+            optionDrag
+              ? {
+                  tracks: [...TRACK_ORDER],
+                  barStart: start.bar,
+                  barEnd: start.bar,
+                }
+              : selectionFromCorners(start, current),
+          );
         }
       };
       const up = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
         if (moved) return;
-        latest.current.onSelect(null);
-        const p = latest.current;
+        const current = latest.current;
+        current.onSelect(null);
         if (start.row <= 2) {
-          p.onDrumClick(TRACK_ORDER[start.row]!, start.index, shift);
+          current.onDrumClick(
+            TRACK_ORDER[start.row]!,
+            start.index,
+            event.shiftKey,
+          );
         } else if (start.row === 3) {
-          p.onBassClick(start.index);
-        } else {
-          setPicker(start.bar);
+          setBassIndex(start.index);
+          current.onBassClick(start.index);
         }
       };
       window.addEventListener("pointermove", move);
@@ -324,177 +367,237 @@ export function Grid(props: GridProps) {
     [onSelect],
   );
 
-  const bodyWidth = bars * BAR_PITCH;
-  const bodyHeight = HEADER_H + 5 * ROW_PITCH + 70;
+  const onGridKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-direct-control]")) return;
+    const cell = cellFromEvent(target);
+    if (!cell) return;
+    event.preventDefault();
+    latest.current.onSelect(null);
+    if (cell.row <= 2) {
+      latest.current.onDrumClick(
+        TRACK_ORDER[cell.row]!,
+        cell.index,
+        event.shiftKey,
+      );
+    } else if (cell.row === 3) {
+      setBassIndex(cell.index);
+      latest.current.onBassClick(cell.index);
+    }
+  };
 
+  const bodyWidth = bars * BAR_PITCH;
+  const bodyHeight = HEADER_H + 5 * ROW_PITCH;
   const rect = selection
     ? (() => {
-        const first = TRACK_ORDER.indexOf(selection.tracks[0]!);
-        const n = selection.tracks.length;
+        const firstRow = TRACK_ORDER.indexOf(selection.tracks[0]!);
         return {
-          left: selection.barStart * BAR_PITCH - 5,
-          top: rowTop(first) - 4,
-          width: (selection.barEnd - selection.barStart + 1) * BAR_PITCH - 2,
-          height: n * ROW_PITCH - 2,
+          left: selection.barStart * BAR_PITCH - 3,
+          top: rowTop(firstRow) - 4,
+          width: (selection.barEnd - selection.barStart + 1) * BAR_PITCH - 4,
+          height: selection.tracks.length * ROW_PITCH - 2,
         };
       })()
     : null;
-
   const choices = numeralChoices(props.scale);
+  const selectedBars = selection
+    ? selection.barStart === selection.barEnd
+      ? `BAR ${selection.barStart + 1}`
+      : `BARS ${selection.barStart + 1}–${selection.barEnd + 1}`
+    : null;
 
   return (
-    <div className="flex">
-      <div className="shrink-0" style={{ width: 70 }}>
-        {TRACK_ORDER.map((kind, row) => (
-          <div
-            key={kind}
-            className="jam-mono jam-label"
-            style={{
-              position: "relative",
-              top: rowTop(row) - (row === 0 ? 0 : 0),
-              height: 0,
-              lineHeight: `${ROW_H}px`,
-              paddingLeft: 4,
-            }}
-          >
-            {ROW_LABELS[kind]}
-          </div>
-        ))}
-      </div>
-      <div ref={scrollerRef} className="min-w-0 flex-1 overflow-x-auto pb-1">
+    <div className="jam-grid-shell">
+      {selection ? (
         <div
-          ref={bodyRef}
-          className="relative"
-          style={{ width: bodyWidth, height: bodyHeight }}
-          onPointerDown={onPointerDown}
+          className="jam-selection-tools"
+          role="group"
+          aria-label="Actions for selected bars"
+          data-overlay
         >
-          {Array.from({ length: bars }, (_, bar) => (
-            <div
-              key={bar}
-              className="jam-mono jam-label"
-              data-bar-header
-              role="button"
-              tabIndex={0}
-              aria-label={`Select bar ${bar + 1}`}
-              style={{
-                position: "absolute",
-                left: bar * BAR_PITCH,
-                top: 0,
-                width: BAR_PITCH - 10,
-                height: HEADER_H - 4,
-                borderBottom: "1px solid var(--jam-line)",
-                paddingLeft: 4,
-                lineHeight: `${HEADER_H - 4}px`,
-              }}
-              onClick={(event) => {
-                const current = latest.current.selection;
-                const barStart = event.shiftKey && current
-                  ? Math.min(current.barStart, bar)
-                  : bar;
-                const barEnd = event.shiftKey && current
-                  ? Math.max(current.barEnd, bar)
-                  : bar;
-                onSelect({ tracks: [...TRACK_ORDER], barStart, barEnd });
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onSelect({ tracks: [...TRACK_ORDER], barStart: bar, barEnd: bar });
-                }
-              }}
+          <span className="jam-selection-tools__label">
+            <strong>{selectedBars}</strong>
+            <span>
+              {selection.tracks.map((track) => ROW_LABELS[track]).join(" · ")}
+            </span>
+          </span>
+          {(
+            [
+              ["vary", "Vary"],
+              ["fill", "Fill"],
+              ["simplify", "Simplify"],
+              ["darker", "Darker"],
+              ["brighter", "Brighter"],
+            ] as const
+          ).map(([action, label]) => (
+            <button
+              key={action}
+              type="button"
+              className="jam-tool-button"
+              disabled={props.menuBusy}
+              onClick={() => props.onMenuAction(action)}
             >
-              {bar + 1}
+              {label}
+            </button>
+          ))}
+          <button
+            className="jam-tool-button jam-tool-button--agent"
+            type="button"
+            onClick={props.onAskBandmate}
+          >
+            Ask bandmate <IconArrowUpRight size={13} />
+          </button>
+        </div>
+      ) : null}
+
+      <div className="jam-grid-layout">
+        <div
+          className="jam-grid-labels"
+          role="group"
+          aria-label="Track controls"
+        >
+          {TRACK_ORDER.map((kind, row) => (
+            <div
+              key={kind}
+              className="jam-track-label"
+              data-track={kind}
+              style={{ top: rowTop(row), height: ROW_H }}
+            >
+              {kind === "bass" ? (
+                <>
+                  <span className="jam-track-label__name">BASS</span>
+                  <span
+                    className="jam-degree-control"
+                    role="group"
+                    aria-label={`Scale degree for step ${bassIndex + 1}`}
+                  >
+                    <button
+                      className="jam-degree-control__button"
+                      type="button"
+                      title="Lower selected bass degree"
+                      aria-label="Lower selected bass degree"
+                      onClick={() => props.onBassWheel(bassIndex, -1)}
+                    >
+                      <IconMinus size={11} />
+                    </button>
+                    <span className="jam-degree-control__value jam-mono">
+                      {bassDegree}
+                    </span>
+                    <button
+                      className="jam-degree-control__button"
+                      type="button"
+                      title="Raise selected bass degree"
+                      aria-label="Raise selected bass degree"
+                      onClick={() => props.onBassWheel(bassIndex, 1)}
+                    >
+                      <IconPlus size={11} />
+                    </button>
+                  </span>
+                </>
+              ) : (
+                <span className="jam-track-label__name">
+                  {ROW_LABELS[kind]}
+                </span>
+              )}
             </div>
           ))}
-          {(["kick", "snare", "hat", "bass"] as const).map((kind, row) => (
-            <StepRow
-              key={kind}
-              kind={kind}
-              row={row}
-              steps={trackByKind(kind)?.steps ?? []}
+        </div>
+        <div
+          ref={scrollerRef}
+          className="jam-grid-scroll"
+          role="region"
+          aria-label="16-step loop grid"
+        >
+          <div
+            ref={bodyRef}
+            className="jam-grid-body"
+            role="group"
+            aria-label="Loop steps"
+            style={{ width: bodyWidth, height: bodyHeight }}
+            onPointerDown={onPointerDown}
+            onKeyDown={onGridKeyDown}
+          >
+            {Array.from({ length: bars }, (_, bar) => {
+              const isSelected = Boolean(
+                selection &&
+                bar >= selection.barStart &&
+                bar <= selection.barEnd,
+              );
+              return (
+                <button
+                  key={bar}
+                  type="button"
+                  className="jam-bar-tab jam-mono"
+                  data-bar-header
+                  data-selected={isSelected ? "true" : undefined}
+                  aria-pressed={isSelected}
+                  aria-label={`Select bar ${bar + 1} across all tracks`}
+                  style={{
+                    left: bar * BAR_PITCH,
+                    width: BAR_PITCH - 8,
+                    height: HEADER_H - 5,
+                  }}
+                  onClick={(event) => {
+                    const current = latest.current.selection;
+                    const barStart =
+                      event.shiftKey && current
+                        ? Math.min(current.barStart, bar)
+                        : bar;
+                    const barEnd =
+                      event.shiftKey && current
+                        ? Math.max(current.barEnd, bar)
+                        : bar;
+                    onSelect({ tracks: [...TRACK_ORDER], barStart, barEnd });
+                  }}
+                >
+                  <span>{String(bar + 1).padStart(2, "0")}</span>
+                  <i />
+                </button>
+              );
+            })}
+            {(["kick", "snare", "hat", "bass"] as const).map((kind, row) => (
+              <StepRow
+                key={kind}
+                kind={kind}
+                row={row}
+                steps={trackByKind(kind)?.steps ?? []}
+                bars={bars}
+                flashing={props.flashing}
+                ghosts={props.ghosts}
+                {...(kind === "bass" ? { onFocusCell: setBassIndex } : {})}
+              />
+            ))}
+            <KeysRow
+              steps={trackByKind("keys")?.steps ?? []}
               bars={bars}
               flashing={props.flashing}
               ghosts={props.ghosts}
+              choices={choices}
+              onPickChord={props.onPickChord}
             />
-          ))}
-          <KeysRow
-            row={4}
-            steps={trackByKind("keys")?.steps ?? []}
-            bars={bars}
-            flashing={props.flashing}
-            ghosts={props.ghosts}
-          />
-          <Playhead scrollerRef={scrollerRef} follow={!selection && picker === null} />
-          {rect ? <div className="jam-select-rect" style={rect} /> : null}
-          {rect && selection ? (
-            <div
-              data-overlay
-              className="jam-menu"
-              style={{ left: Math.max(0, rect.left), top: rect.top + rect.height + 8 }}
-            >
-              {(
-                [
-                  ["vary", "Vary"],
-                  ["fill", "Fill"],
-                  ["simplify", "Simplify"],
-                  ["darker", "Darker"],
-                  ["brighter", "Brighter"],
-                ] as const
-              ).map(([action, label]) => (
-                <button
-                  key={action}
-                  type="button"
-                  className="jam-btn"
-                  disabled={props.menuBusy}
-                  onClick={() => props.onMenuAction(action)}
-                >
-                  {label}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="jam-btn jam-btn-amber"
-                onClick={props.onAskBandmate}
-              >
-                Ask bandmate
-              </button>
-            </div>
-          ) : null}
-          {picker !== null ? (
-            <div
-              data-overlay
-              className="jam-picker"
-              style={{
-                left: Math.min(picker * BAR_PITCH, Math.max(0, bodyWidth - 280)),
-                top: rowTop(4) + ROW_H + 6,
-              }}
-            >
-              {choices.map((numeral) => (
-                <button
-                  key={numeral}
-                  type="button"
-                  className="jam-btn jam-mono"
-                  onClick={() => {
-                    props.onPickChord(picker, numeral);
-                    setPicker(null);
-                  }}
-                >
-                  {numeral}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="jam-btn jam-mono"
-                onClick={() => {
-                  props.onPickChord(picker, null);
-                  setPicker(null);
-                }}
-              >
-                off
-              </button>
-            </div>
-          ) : null}
+            <Playhead scrollerRef={scrollerRef} follow={!selection} />
+            {rect ? (
+              <div
+                className="jam-select-rect"
+                style={rect}
+                aria-hidden="true"
+              />
+            ) : null}
+          </div>
         </div>
+      </div>
+      <div className="jam-grid-legend">
+        <span>
+          <i className="jam-legend-dot jam-legend-dot--you" /> YOU
+        </span>
+        <span>
+          <i className="jam-legend-dot jam-legend-dot--agent" /> BANDMATE
+        </span>
+        <span className="jam-grid-legend__hint">
+          Shift-click cycles velocity · Scroll bass to transpose · chord
+          selector edits harmony
+        </span>
       </div>
     </div>
   );

@@ -1,7 +1,9 @@
 import {
+  IconBolt,
+  IconMinus,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
-  IconBolt,
+  IconPlus,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
@@ -13,7 +15,6 @@ const ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const SCALES = ["major", "minor", "dorian", "pentatonic minor"];
 
 export type TransportBarProps = {
-  name: string;
   bpm: number;
   root: string;
   scale: string;
@@ -25,8 +26,8 @@ export type TransportBarProps = {
   ) => void;
   onUnstick: () => void;
   notice: string | null;
-  /** When set, a Controls strip (saved extensions) renders under the bar. */
   sessionId?: string;
+  hatEnergy: number;
 };
 
 export function TransportBar(props: TransportBarProps) {
@@ -42,130 +43,135 @@ export function TransportBar(props: TransportBarProps) {
   };
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="jam-panel flex flex-wrap items-end gap-4 px-4 py-3">
+    <div className="jam-transport-stack">
+      <div className="jam-transport" role="group" aria-label="Loop transport">
         <button
           type="button"
-          className="jam-btn jam-btn-play"
+          className="jam-play-button"
           data-playing={props.playing ? "true" : "false"}
           onClick={props.onTogglePlay}
-          style={{
-            width: 84,
-            height: 44,
-            justifyContent: "center",
-            fontSize: 14,
-          }}
-          title="Space"
+          title={props.playing ? "Stop loop (Space)" : "Play loop (Space)"}
+          aria-label={props.playing ? "Stop loop" : "Play loop"}
         >
           {props.playing ? (
-            <IconPlayerStopFilled size={18} />
+            <IconPlayerStopFilled size={17} />
           ) : (
-            <IconPlayerPlayFilled size={18} />
+            <IconPlayerPlayFilled size={17} />
           )}
-          {props.playing ? "Stop" : "Play"}
+          <span>{props.playing ? "STOP" : "PLAY"}</span>
+          <kbd>SPACE</kbd>
         </button>
 
-        <label className="flex flex-col gap-1">
-          <span className="jam-label">BPM</span>
-          <span className="flex items-center gap-1">
+        <div className="jam-transport__divider" aria-hidden="true" />
+
+        <div className="jam-transport-control jam-bpm-control">
+          <label className="jam-label" htmlFor="jam-bpm">
+            TEMPO
+          </label>
+          <div className="jam-bpm-control__body">
             <button
+              className="jam-icon-button"
               type="button"
-              className="jam-btn"
-              style={{ width: 30, padding: 0, justifyContent: "center" }}
+              title="Decrease tempo"
+              aria-label="Decrease tempo"
               onClick={() => commitBpm(String(props.bpm - 1))}
             >
-              -
+              <IconMinus size={14} />
             </button>
             <input
-              className="jam-input jam-mono"
-              style={{ width: 60, textAlign: "center" }}
+              id="jam-bpm"
+              className="jam-input jam-mono jam-bpm-input"
               inputMode="numeric"
               value={bpmDraft}
-              onChange={(e) => setBpmDraft(e.target.value)}
-              onBlur={(e) => commitBpm(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              onChange={(event) => setBpmDraft(event.target.value)}
+              onBlur={(event) => commitBpm(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter")
+                  (event.target as HTMLInputElement).blur();
               }}
+              aria-label="Tempo in beats per minute"
             />
+            <span className="jam-bpm-suffix">BPM</span>
             <button
+              className="jam-icon-button"
               type="button"
-              className="jam-btn"
-              style={{ width: 30, padding: 0, justifyContent: "center" }}
+              title="Increase tempo"
+              aria-label="Increase tempo"
               onClick={() => commitBpm(String(props.bpm + 1))}
             >
-              +
+              <IconPlus size={14} />
             </button>
-          </span>
-        </label>
+          </div>
+        </div>
 
-        <label className="flex flex-col gap-1">
-          <span className="jam-label">Key</span>
-          <span className="flex gap-1">
+        <div className="jam-transport-control jam-key-control">
+          <span className="jam-label">KEY</span>
+          <div className="jam-key-control__body">
             <select
-              className="jam-input"
+              className="jam-input jam-key-select"
               value={props.root}
-              onChange={(e) => props.onChange({ root: e.target.value })}
+              onChange={(event) => props.onChange({ root: event.target.value })}
+              aria-label="Root note"
             >
-              {ROOTS.map((r) => (
-                <option key={r} value={r}>
-                  {r}
+              {ROOTS.map((root) => (
+                <option key={root} value={root}>
+                  {root}
                 </option>
               ))}
             </select>
             <select
-              className="jam-input"
+              className="jam-input jam-key-select jam-key-select--scale"
               value={props.scale}
-              onChange={(e) => props.onChange({ scale: e.target.value })}
+              onChange={(event) =>
+                props.onChange({ scale: event.target.value })
+              }
+              aria-label="Scale"
             >
-              {SCALES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
+              {SCALES.map((scale) => (
+                <option key={scale} value={scale}>
+                  {scale}
                 </option>
               ))}
             </select>
-          </span>
-        </label>
+          </div>
+        </div>
 
-        <label className="flex flex-col gap-1">
-          <span className="jam-label">
-            Swing {Math.round(props.swing * 100)}%
-          </span>
+        <div className="jam-transport-control jam-swing-control">
+          <label className="jam-label" htmlFor="jam-swing">
+            SWING <strong>{Math.round(props.swing * 100)}%</strong>
+          </label>
           <input
+            id="jam-swing"
+            className="jam-range"
             type="range"
             min={0}
             max={100}
             value={Math.round(props.swing * 100)}
-            onChange={(e) =>
-              props.onChange({ swing: Number(e.target.value) / 100 })
+            onChange={(event) =>
+              props.onChange({ swing: Number(event.target.value) / 100 })
             }
-            style={{ width: 120, accentColor: "var(--jam-cyan)", height: 34 }}
+            aria-label="Swing amount"
           />
-        </label>
+        </div>
 
+        <div className="jam-transport__spacer" />
         <button
+          className="jam-unstick-button"
           type="button"
-          className="jam-btn jam-btn-amber"
-          style={{ height: 44 }}
           onClick={props.onUnstick}
         >
           <IconBolt size={16} />
-          Unstick me
+          <span>UNSTICK ME</span>
         </button>
-
-        <div className="ml-auto flex flex-col items-end gap-1">
-          <span className="jam-label">Session</span>
-          <span className="text-sm font-semibold">{props.name}</span>
-          {props.notice ? (
-            <span
-              className="jam-mono text-xs"
-              style={{ color: "var(--jam-amber)" }}
-            >
-              {props.notice}
-            </span>
-          ) : null}
-        </div>
+        {props.notice ? (
+          <span className="jam-transport__notice" role="status">
+            {props.notice}
+          </span>
+        ) : null}
       </div>
-      {props.sessionId ? <ControlsStrip sessionId={props.sessionId} /> : null}
+      {props.sessionId ? (
+        <ControlsStrip sessionId={props.sessionId} energy={props.hatEnergy} />
+      ) : null}
     </div>
   );
 }

@@ -1,8 +1,7 @@
-import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { defineClientAction } from "@agent-native/core/client/host";
-import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
+import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
 import {
   deleteClientAppState,
+  readClientAppState,
   writeClientAppState,
 } from "@agent-native/core/client/application-state";
 import {
@@ -10,12 +9,29 @@ import {
   useActionQuery,
   useDbSync,
 } from "@agent-native/core/client/hooks";
+import { defineClientAction } from "@agent-native/core/client/host";
+import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
+import {
+  IconArrowBackUp,
+  IconArrowLeft,
+  IconArrowUpRight,
+  IconHistory,
+  IconHelpCircle,
+  IconX,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { getJamEngine } from "@/lib/jam/audio";
 import {
+  activeStepRatio,
   applyPatchToTracks,
   cycleVelocity,
   describeSelection,
@@ -40,6 +56,18 @@ import { TransportBar } from "./TransportBar";
 import "./jam.css";
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
+const COACH_KEY = "jam-first-run-v1";
+const COACH_STEPS = [
+  { id: "beat", label: "Click a drum cell to add a beat." },
+  {
+    id: "selection",
+    label: "Drag across bars (or tap a bar number) to get ideas.",
+  },
+  { id: "unstick", label: "Stuck? Call in the bandmates." },
+] as const;
+
+type CoachProgress = { completed: string[]; dismissed: boolean };
+const INITIAL_COACH: CoachProgress = { completed: [], dismissed: false };
 
 function isTextTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -50,6 +78,7 @@ function isTextTarget(target: EventTarget | null): boolean {
 }
 
 export function SessionView({ sessionId }: { sessionId: string }) {
+  const [agentGenerating, sendAgentPrompt] = useAgentChatGenerating();
   const qc = useQueryClient();
   const queryKey = useMemo(
     () => ["action", "get-session", { id: sessionId }],
@@ -65,6 +94,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const { data, error, isLoading } = useActionQuery("get-session", {
     id: sessionId,
   }) as { data: SessionData | undefined; error: unknown; isLoading: boolean };
+  const { data: taste } = useActionQuery("get-taste", { limit: 60 }) as {
+    data: { kept: string[]; tossed: string[]; summary: string } | undefined;
+  };
 
   const setStepsM = useActionMutation("set-steps");
   const progressionM = useActionMutation("apply-progression");
@@ -81,8 +113,18 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [coachProgress, setCoachProgress] = useState(INITIAL_COACH);
+  const [coachReady, setCoachReady] = useState(false);
+  const [bandMoment, setBandMoment] = useState<
+    "working" | "ideas" | "sent" | null
+  >(null);
   const dataRef = useRef(data);
   dataRef.current = data;
+  const unstickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ideasBeforeUnstick = useRef(0);
+  const unstickRunObserved = useRef(false);
+  const coachProgressDirty = useRef(false);
 
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notify = useCallback((message: string) => {
@@ -90,10 +132,90 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setNotice(null), 4500);
   }, []);
+  const coachProgressRef = useRef(coachProgress);
+  coachProgressRef.current = coachProgress;
+
+  useEffect(() => {
+    let cancelled = false;
+    void readClientAppState(COACH_KEY)
+      .then((value) => {
+        if (cancelled) return;
+        if (coachProgressDirty.current) {
+          setCoachReady(true);
+          return;
+        }
+        const stored =
+          value && typeof value === "object"
+            ? (value as Partial<CoachProgress>)
+            : {};
+        const completed = Array.isArray(stored.completed)
+          ? stored.completed.filter(
+              (step): step is string => typeof step === "string",
+            )
+          : [];
+        const progress = {
+          completed: completed.filter((step) =>
+            COACH_STEPS.some((item) => item.id === step),
+          ),
+          dismissed: stored.dismissed === true,
+        };
+        coachProgressRef.current = progress;
+        setCoachProgress(progress);
+        setCoachReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setCoachReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveCoachProgress = useCallback(
+    (progress: CoachProgress) => {
+      coachProgressDirty.current = true;
+      coachProgressRef.current = progress;
+      setCoachProgress(progress);
+      void writeClientAppState(COACH_KEY, progress, {
+        requestSource: TAB_ID,
+      }).catch(() => {
+        notify("Coach progress could not be saved.");
+      });
+    },
+    [notify],
+  );
+
+  const completeCoachStep = useCallback(
+    (step: string) => {
+      const current = coachProgressRef.current;
+      if (current.dismissed || current.completed.includes(step)) return;
+      saveCoachProgress({
+        ...current,
+        completed: [...current.completed, step],
+      });
+    },
+    [saveCoachProgress],
+  );
+
+  const dismissCoach = useCallback(() => {
+    saveCoachProgress({ ...coachProgressRef.current, dismissed: true });
+  }, [saveCoachProgress]);
+
+  useEffect(
+    () => () => {
+      if (unstickTimer.current) clearTimeout(unstickTimer.current);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    },
+    [],
+  );
+
   const errorMessage = (e: unknown) =>
     e instanceof Error
       ? e.message
-      : e && typeof e === "object" && "error" in e && typeof e.error === "string"
+      : e &&
+          typeof e === "object" &&
+          "error" in e &&
+          typeof e.error === "string"
         ? e.error
         : "Something went wrong.";
 
@@ -152,7 +274,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           name: "play",
           title: "Play loop",
           description: "Start playback of the current Jam Session loop.",
-          schema: { type: "object", properties: {}, additionalProperties: false },
+          schema: {
+            type: "object",
+            properties: {},
+            additionalProperties: false,
+          },
           run: async () => {
             if (!engine.playing) await engine.start();
             setPlaying(engine.playing);
@@ -163,7 +289,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           name: "stop",
           title: "Stop loop",
           description: "Stop playback of the current Jam Session loop.",
-          schema: { type: "object", properties: {}, additionalProperties: false },
+          schema: {
+            type: "object",
+            properties: {},
+            additionalProperties: false,
+          },
           run: () => {
             engine.stop();
             setPlaying(false);
@@ -214,9 +344,10 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   }, [engine, sessionId]);
 
   // --- Flash cells changed by someone other than this tab.
-  const prevTracks = useRef<{ id: string; tracks: SessionData["tracks"] } | null>(
-    null,
-  );
+  const prevTracks = useRef<{
+    id: string;
+    tracks: SessionData["tracks"];
+  } | null>(null);
   const localCells = useRef<Set<string>>(new Set());
   const suppressUntil = useRef(0);
   useEffect(() => {
@@ -280,9 +411,17 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const onDrumClick = (kind: TrackKind, index: number, shift: boolean) => {
     const current = valueAt(kind, index);
     const isOn = typeof current === "number" && current > 0;
-    const next = shift && isOn ? cycleVelocity(current as number) : shift ? 1 : toggleDrum(current ?? 0);
+    const next =
+      shift && isOn
+        ? cycleVelocity(current as number)
+        : shift
+          ? 1
+          : toggleDrum(current ?? 0);
     editCells(kind, index, [next]);
-    if (next > 0) void engine.preview(kind, next);
+    if (next > 0) {
+      completeCoachStep("beat");
+      void engine.preview(kind, next);
+    }
   };
 
   const onBassClick = (index: number) => {
@@ -305,7 +444,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       editCells("keys", bar, [null]);
       return;
     }
-    const patch: PatchEntry[] = [{ track: "keys", fromStep: bar, steps: [numeral] }];
+    const patch: PatchEntry[] = [
+      { track: "keys", fromStep: bar, steps: [numeral] },
+    ];
     const rollback = optimistic(
       (d) => ({ ...d, tracks: applyPatchToTracks(d.tracks, patch) }),
       patchCells(data?.tracks ?? [], patch),
@@ -323,7 +464,12 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   };
 
   const onTransport = (
-    change: Partial<{ bpm: number; root: string; scale: string; swing: number }>,
+    change: Partial<{
+      bpm: number;
+      root: string;
+      scale: string;
+      swing: number;
+    }>,
   ) => {
     optimistic((d) => ({ ...d, session: { ...d.session, ...change } }));
     scheduleTransport(change);
@@ -416,37 +562,94 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     }
   };
 
-  const onAskBandmate = () => {
-    if (!selection) return;
-    sendToAgentChat({
-      message: `Give me ideas for ${describeSelection(selection)}`,
+  const sendPrompt = (message: string) => {
+    return sendAgentPrompt({
+      message,
       context: [
         `Session id: ${sessionId}`,
-        `Selected tracks: ${selection.tracks.join(", ")}`,
-        `Selected bars (0-based, inclusive): ${selection.barStart}-${selection.barEnd}`,
+        `Session: ${data?.session.name ?? "Jam Session"} · ${data?.session.bpm ?? "?"} BPM · ${data?.session.root ?? "?"} ${data?.session.scale ?? ""}`,
+        selection
+          ? `Selection: ${describeSelection(selection)} (0-based bars ${selection.barStart}-${selection.barEnd}; tracks ${selection.tracks.join(", ")})`
+          : "Selection: none",
+        taste?.summary
+          ? `Taste: ${taste.summary}`
+          : "Taste: not enough signals yet",
       ].join("\n"),
       submit: true,
       openSidebar: true,
     });
   };
 
-  const onUnstick = () => {
-    sendToAgentChat({
-      message: "Unstick me",
-      context: JSON.stringify({ sessionId, selection }),
-      submit: true,
-      openSidebar: true,
-    });
+  const onAskBandmate = () => {
+    if (!selection) return;
+    sendPrompt(`Give me ideas for ${describeSelection(selection)}`);
   };
+
+  const onUnstick = () => {
+    completeCoachStep("unstick");
+    ideasBeforeUnstick.current = data?.ideas.length ?? 0;
+    unstickRunObserved.current = false;
+    setBandMoment("working");
+    if (unstickTimer.current) clearTimeout(unstickTimer.current);
+    unstickTimer.current = setTimeout(() => {
+      if (unstickRunObserved.current) return;
+      setBandMoment((current) => (current === "working" ? "sent" : current));
+      unstickTimer.current = setTimeout(() => setBandMoment(null), 4500);
+    }, 12000);
+    try {
+      sendPrompt("Unstick me");
+    } catch (cause) {
+      if (unstickTimer.current) clearTimeout(unstickTimer.current);
+      setBandMoment("sent");
+      unstickTimer.current = setTimeout(() => setBandMoment(null), 4500);
+      notify(errorMessage(cause));
+    }
+  };
+
+  useEffect(() => {
+    if (
+      bandMoment !== "working" ||
+      !data ||
+      data.ideas.length <= ideasBeforeUnstick.current
+    )
+      return;
+    if (unstickTimer.current) clearTimeout(unstickTimer.current);
+    setBandMoment("ideas");
+    unstickTimer.current = setTimeout(() => setBandMoment(null), 5000);
+  }, [bandMoment, data?.ideas.length]);
+
+  useEffect(() => {
+    if (bandMoment !== "working") return;
+    if (agentGenerating) {
+      unstickRunObserved.current = true;
+      if (unstickTimer.current) clearTimeout(unstickTimer.current);
+      return;
+    }
+    if (!unstickRunObserved.current) return;
+    setBandMoment("sent");
+    unstickTimer.current = setTimeout(() => setBandMoment(null), 4500);
+  }, [agentGenerating, bandMoment]);
+
+  const coachStep =
+    coachReady && !coachProgress.dismissed
+      ? COACH_STEPS.find((step) => !coachProgress.completed.includes(step.id))
+      : undefined;
+  const coachStepNumber = coachStep
+    ? COACH_STEPS.findIndex((step) => step.id === coachStep.id) + 1
+    : 0;
 
   // --- Keyboard.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (isTextTarget(event.target)) return;
       if (event.code === "Space") {
+        if (
+          (event.target as HTMLElement | null)?.closest(
+            "button, a, [role='button']",
+          )
+        )
+          return;
         event.preventDefault();
-        const active = document.activeElement as HTMLElement | null;
-        if (active?.tagName === "BUTTON") active.blur();
         void togglePlay();
       } else if (
         (event.metaKey || event.ctrlKey) &&
@@ -455,6 +658,12 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       ) {
         event.preventDefault();
         undo();
+      } else if (
+        event.key === "?" ||
+        (event.shiftKey && event.code === "Slash")
+      ) {
+        event.preventDefault();
+        setHelpOpen(true);
       } else if (event.key === "Escape") {
         setSelection(null);
       }
@@ -523,34 +732,132 @@ export function SessionView({ sessionId }: { sessionId: string }) {
 
   if (isLoading) {
     return (
-      <div className="jam-root p-6">
-        <p className="jam-mono text-sm" style={{ color: "var(--jam-dim)" }}>
-          Loading session...
-        </p>
+      <div
+        className="jam-root jam-session jam-session--loading"
+        aria-label="Loading loop"
+      >
+        <div className="jam-session-head">
+          <span className="jam-wordmark">JAM SESSION</span>
+          <span className="jam-label">LOADING LOOP</span>
+        </div>
+        <div className="jam-loading-bars">
+          <i />
+          <i />
+          <i />
+          <i />
+          <i />
+        </div>
+        <div className="jam-loading-grid">
+          <i />
+          <i />
+          <i />
+          <i />
+          <i />
+        </div>
       </div>
     );
   }
   if (error || !data) {
     return (
-      <div className="jam-root p-6">
-        <p className="text-sm">{errorMessage(error)}</p>
-        <Link to="/home" className="jam-btn mt-3">
-          Back to jams
+      <div className="jam-root jam-session jam-session--error">
+        <Link to="/home" className="jam-back-link">
+          <IconArrowLeft size={15} /> CRATE
         </Link>
+        <div className="jam-error-state" role="alert">
+          <span className="jam-label">LOOP UNAVAILABLE</span>
+          <h1>Could not open this jam.</h1>
+          <p>{errorMessage(error)}</p>
+          <button
+            className="jam-unstick-button"
+            type="button"
+            onClick={() => void qc.invalidateQueries({ queryKey })}
+          >
+            Retry <IconArrowUpRight size={15} />
+          </button>
+        </div>
       </div>
     );
   }
 
   const { session } = data;
+  const barPhrase = selection
+    ? selection.barStart === selection.barEnd
+      ? `bar ${selection.barStart + 1}`
+      : `bars ${selection.barStart + 1}-${selection.barEnd + 1}`
+    : `the last bar`;
+  const prompts = [
+    {
+      label: `Make ${barPhrase} build into the drop`,
+      message: `Make ${barPhrase} build into the drop`,
+    },
+    {
+      label: "Darker bassline",
+      message: `Make the bassline darker${selection ? ` in ${describeSelection(selection)}` : ""}`,
+    },
+    {
+      label: "Give me a swing knob",
+      message: "Give me a swing knob for this loop",
+    },
+  ];
+  const tasteLabel = taste?.kept.length
+    ? taste.kept.slice(0, 2).join(" · ")
+    : taste?.tossed.length
+      ? `avoids ${taste.tossed[0]}`
+      : "still learning";
+  const hatSteps = data?.tracks.find((track) => track.kind === "hat")?.steps;
+  const hatEnergy = hatSteps?.length ? activeStepRatio(hatSteps) : 0.5;
+
   return (
-    <div className="jam-root flex flex-col gap-4 p-4">
-      <div className="flex items-center gap-3">
-        <Link to="/home" className="jam-label" style={{ textDecoration: "none" }}>
-          &larr; All jams
+    <div className="jam-root jam-session">
+      <header className="jam-session-head">
+        <Link to="/home" className="jam-back-link" title="Back to loop crate">
+          <IconArrowLeft size={16} /> <span>CRATE</span>
         </Link>
-      </div>
+        <div className="jam-session-title">
+          <span className="jam-label">
+            {String(session.bars).padStart(2, "0")} BAR LOOP
+          </span>
+          <h1>{session.name}</h1>
+        </div>
+        <div
+          className="jam-taste"
+          title={taste?.summary ?? "Taste signals from kept and tossed ideas"}
+        >
+          <span className="jam-taste__label">YOUR TASTE</span>
+          <span className="jam-taste__value">{tasteLabel}</span>
+        </div>
+        <div className="jam-session__actions">
+          <button
+            className="jam-icon-button"
+            type="button"
+            title="Undo last edit (⌘Z)"
+            aria-label="Undo last edit"
+            onClick={undo}
+          >
+            <IconArrowBackUp size={17} />
+          </button>
+          <button
+            className="jam-icon-button"
+            type="button"
+            title="Edit history"
+            aria-label="Edit history"
+            onClick={() => setHistoryOpen(true)}
+          >
+            <IconHistory size={17} />
+          </button>
+          <button
+            className="jam-icon-button"
+            type="button"
+            title="Keyboard shortcuts (?)"
+            aria-label="Keyboard shortcuts"
+            onClick={() => setHelpOpen(true)}
+          >
+            <IconHelpCircle size={17} />
+          </button>
+        </div>
+      </header>
+
       <TransportBar
-        name={session.name}
         bpm={session.bpm}
         root={session.root}
         scale={session.scale}
@@ -561,17 +868,103 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         onUnstick={onUnstick}
         notice={notice}
         sessionId={sessionId}
+        hatEnergy={hatEnergy}
       />
-      <div className="flex justify-end">
-        <button
-          className="jam-btn"
-          onClick={() => setHistoryOpen(true)}
-          type="button"
+
+      {agentGenerating && !bandMoment ? (
+        <div className="jam-agent-status" role="status">
+          <span className="jam-band-moment__pulse" /> BANDMATE IS WORKING WITH
+          THIS LOOP
+        </div>
+      ) : null}
+
+      {bandMoment ? (
+        <section
+          className="jam-band-moment"
+          data-state={bandMoment}
+          aria-live="polite"
         >
-          History
-        </button>
-      </div>
-      <div className="jam-panel px-3 py-3">
+          <div className="jam-band-moment__headline">
+            <span className="jam-band-moment__pulse" />
+            <strong>
+              {bandMoment === "ideas"
+                ? "IDEAS IN THE TRAY"
+                : bandMoment === "sent"
+                  ? "BANDMATES INVITED"
+                  : "BANDMATES ON THE LOOP"}
+            </strong>
+            <span>
+              {bandMoment === "ideas"
+                ? "Three ears on one loop."
+                : bandMoment === "sent"
+                  ? "The chat panel has the session context."
+                  : "Sketching a way through the loop."}
+            </span>
+          </div>
+          <div className="jam-band-roster">
+            <span data-role="drummer">
+              <i /> DRUMMER <small>pocket</small>
+            </span>
+            <span data-role="bassist">
+              <i /> BASSIST <small>counterline</small>
+            </span>
+            <span data-role="keys">
+              <i /> KEYS <small>harmony</small>
+            </span>
+          </div>
+        </section>
+      ) : null}
+
+      <section className="jam-stage" aria-label="Jam loop editor">
+        <div className="jam-stage__head">
+          <div className="jam-stage__title">
+            <span className="jam-stage__light" />
+            <span>LIVE GRID</span>
+            <span className="jam-stage__sep">/</span>
+            <span className="jam-mono">{session.bars} BARS · 16 STEPS</span>
+          </div>
+          {selection ? (
+            <span className="jam-stage__selection">
+              {describeSelection(selection)}
+            </span>
+          ) : null}
+        </div>
+
+        {coachStep ? (
+          <div className="jam-coach" aria-live="polite">
+            <span className="jam-coach__count jam-mono">
+              0{coachStepNumber} / 03
+            </span>
+            <span>{coachStep.label}</span>
+            <button
+              type="button"
+              onClick={dismissCoach}
+              title="Dismiss first-run guide"
+              aria-label="Dismiss first-run guide"
+            >
+              <IconX size={14} />
+            </button>
+          </div>
+        ) : null}
+
+        <div
+          className="jam-prompt-rail"
+          role="group"
+          aria-label="Suggested bandmate prompts"
+        >
+          <span className="jam-prompt-rail__label">ASK THE BANDMATE</span>
+          {prompts.map((prompt) => (
+            <button
+              type="button"
+              key={prompt.label}
+              className="jam-prompt-chip"
+              onClick={() => sendPrompt(prompt.message)}
+            >
+              {prompt.label} <IconArrowUpRight size={13} />
+            </button>
+          ))}
+        </div>
+
         <Grid
           tracks={displayTracks}
           bars={session.bars}
@@ -579,33 +972,86 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           flashing={flashing}
           ghosts={ghosts}
           selection={selection}
-          onSelect={setSelection}
+          onSelect={(next) => {
+            setSelection(next);
+            if (next) completeCoachStep("selection");
+          }}
           onDrumClick={onDrumClick}
           onBassClick={onBassClick}
           onBassWheel={onBassWheel}
           onPickChord={onPickChord}
-          onMenuAction={(a) => void onMenuAction(a)}
+          onMenuAction={(action) => void onMenuAction(action)}
           onAskBandmate={onAskBandmate}
           menuBusy={menuBusy}
         />
-        <p className="jam-mono mt-2 px-1 text-[10px]" style={{ color: "var(--jam-dim)" }}>
-          Drag across bars to select · Space play/stop · ⌘Z undo
-        </p>
-      </div>
+      </section>
+
       <IdeaTray
         ideas={data.ideas}
+        tracks={data.tracks}
         auditionId={auditionId}
         onAudition={setAuditionId}
         onKeep={onKeep}
         onToss={onToss}
       />
+
       {historyOpen ? (
         <HistoryDrawer
           sessionId={sessionId}
           onClose={() => setHistoryOpen(false)}
         />
       ) : null}
+      <Sheet open={helpOpen} onOpenChange={setHelpOpen}>
+        <SheetContent className="jam-root jam-help-sheet" side="right">
+          <div className="jam-help-sheet__head">
+            <div>
+              <SheetTitle>Shortcuts</SheetTitle>
+              <SheetDescription>Keys for working the loop.</SheetDescription>
+            </div>
+          </div>
+          <dl className="jam-shortcuts">
+            <div>
+              <dt>Play / stop</dt>
+              <dd>
+                <kbd>Space</kbd>
+              </dd>
+            </div>
+            <div>
+              <dt>Undo last edit</dt>
+              <dd>
+                <kbd>⌘ Z</kbd>
+                <kbd>Ctrl Z</kbd>
+              </dd>
+            </div>
+            <div>
+              <dt>Clear selection</dt>
+              <dd>
+                <kbd>Esc</kbd>
+              </dd>
+            </div>
+            <div>
+              <dt>Select bars</dt>
+              <dd>Tap a bar tab or drag across rows</dd>
+            </div>
+            <div>
+              <dt>Drum velocity</dt>
+              <dd>
+                <kbd>Shift</kbd> + click
+              </dd>
+            </div>
+            <div>
+              <dt>Bass degree</dt>
+              <dd>Scroll over bass, or use − / +</dd>
+            </div>
+            <div>
+              <dt>Open shortcuts</dt>
+              <dd>
+                <kbd>?</kbd>
+              </dd>
+            </div>
+          </dl>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
-

@@ -96,6 +96,66 @@ export function patchCells(
   return diffCells(tracks, applyPatchToTracks(tracks, patch));
 }
 
+export type PatchPreviewRow = {
+  track: TrackKind;
+  bar: number;
+  before: StepValue[];
+  after: StepValue[];
+  changed: number[];
+};
+
+/** Groups the changed cells in a patch into small, bar-sized preview rows. */
+export function patchPreviewRows(
+  tracks: readonly TrackData[],
+  patch: readonly PatchEntry[],
+): PatchPreviewRow[] {
+  const changedByRow = new Map<
+    string,
+    { track: TrackKind; bar: number; changed: number[] }
+  >();
+  const afterTracks = applyPatchToTracks(tracks, patch);
+  for (const beforeTrack of tracks) {
+    const afterTrack = afterTracks.find(
+      (item) => item.kind === beforeTrack.kind,
+    );
+    if (!afterTrack) continue;
+    beforeTrack.steps.forEach((before, index) => {
+      const after = afterTrack.steps[index];
+      if ((before ?? null) === (after ?? null)) return;
+      const track = beforeTrack.kind;
+      const bar = track === "keys" ? index : Math.floor(index / STEPS_PER_BAR);
+      const start = track === "keys" ? bar : bar * STEPS_PER_BAR;
+      const rowKey = `${track}:${bar}`;
+      const row = changedByRow.get(rowKey) ?? { track, bar, changed: [] };
+      row.changed.push(index - start);
+      changedByRow.set(rowKey, row);
+    });
+  }
+
+  return [...changedByRow.values()]
+    .sort(
+      (a, b) =>
+        TRACK_ORDER.indexOf(a.track) - TRACK_ORDER.indexOf(b.track) ||
+        a.bar - b.bar,
+    )
+    .flatMap(({ track, bar, changed }) => {
+      const beforeTrack = tracks.find((item) => item.kind === track);
+      const afterTrack = afterTracks.find((item) => item.kind === track);
+      if (!beforeTrack || !afterTrack) return [];
+      const start = track === "keys" ? bar : bar * STEPS_PER_BAR;
+      const length = track === "keys" ? 1 : STEPS_PER_BAR;
+      return [
+        {
+          track,
+          bar,
+          before: beforeTrack.steps.slice(start, start + length),
+          after: afterTrack.steps.slice(start, start + length),
+          changed,
+        },
+      ];
+    });
+}
+
 /** Shift-click on a lit drum cell cycles velocity 1 -> 2 -> 3 -> 1. */
 export function cycleVelocity(current: number): number {
   if (current < 1) return 1;
@@ -110,6 +170,15 @@ export function toggleDrum(current: StepValue): number {
 
 export function toggleBass(current: StepValue): number | null {
   return typeof current === "number" && current > 0 ? null : 1;
+}
+
+/** Ratio of active numeric steps, used by the Hat Energy percent control. */
+export function activeStepRatio(steps: readonly StepValue[]): number {
+  if (steps.length === 0) return 0;
+  const active = steps.filter(
+    (value) => typeof value === "number" && value > 0,
+  ).length;
+  return active / steps.length;
 }
 
 /** Moves a bass degree by `delta`, clamped to 1..MAX_BASS_DEGREE. */
@@ -160,10 +229,10 @@ export function numeralChoices(scale: string): string[] {
 }
 
 // --- Layout math shared by the grid and playhead -----------------------------
-export const CELL_W = 26;
-export const CELL_PITCH = 28;
-export const GROUP_PITCH = 4 * CELL_PITCH + 6;
-export const BAR_PITCH = 4 * GROUP_PITCH + 10;
+export const CELL_W = 18;
+export const CELL_PITCH = 20;
+export const GROUP_PITCH = 4 * CELL_PITCH + 4;
+export const BAR_PITCH = 4 * GROUP_PITCH + 12;
 
 /** Left offset (px) of a step inside the grid body. */
 export function stepX(step: number): number {

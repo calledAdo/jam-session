@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import {
   Sheet,
   SheetContent,
@@ -40,10 +43,12 @@ function authorColor(author: string): string {
   switch (author.toLowerCase()) {
     case "you":
       return "var(--jam-cyan)";
+    case "drummer":
+      return "var(--jam-coral)";
     case "bassist":
-      return "#a78bfa";
+      return "var(--jam-sky)";
     case "keys":
-      return "#4ade80";
+      return "var(--jam-leaf)";
     default:
       return "var(--jam-amber)";
   }
@@ -113,7 +118,10 @@ export function HistoryDrawer({
           </button>
         </header>
         {message ? (
-          <p aria-live="polite" className="px-5 pt-3 text-xs text-[var(--jam-dim)]">
+          <p
+            aria-live="polite"
+            className="px-5 pt-3 text-xs text-[var(--jam-dim)]"
+          >
             {message}
           </p>
         ) : null}
@@ -124,7 +132,9 @@ export function HistoryDrawer({
             </p>
           ) : error ? (
             <p className="py-4 text-sm">
-              {error instanceof Error ? error.message : "Could not load edit history."}
+              {error instanceof Error
+                ? error.message
+                : "Could not load edit history."}
             </p>
           ) : data?.length ? (
             <ol className="divide-y divide-[var(--jam-line)]">
@@ -141,7 +151,7 @@ export function HistoryDrawer({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span
-                          className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+                          className="rounded-sm border px-2 py-0.5 text-[11px] font-semibold"
                           style={{ borderColor: color, color }}
                         >
                           {author}
@@ -161,7 +171,9 @@ export function HistoryDrawer({
                       onClick={() => revert(edit.id)}
                       type="button"
                     >
-                      {revertingId === edit.id ? "Restoring..." : "Revert to here"}
+                      {revertingId === edit.id
+                        ? "Restoring..."
+                        : "Revert to here"}
                     </button>
                   </li>
                 );
