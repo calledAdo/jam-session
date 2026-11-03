@@ -63,12 +63,6 @@ function intensityFor(attempt: number, count: number): number {
   return Math.min(0.9, 0.2 + Math.min(attempt, count - 1) * step);
 }
 
-function intensityWord(intensity: number): string {
-  if (intensity < 0.34) return "Nudge";
-  if (intensity < 0.62) return "Push";
-  return "Shake up";
-}
-
 function vary(
   context: VariationContext,
   attempt: number,
@@ -76,17 +70,13 @@ function vary(
   barEnd = context.barEnd,
 ): Patch {
   const intensity = intensityFor(attempt, context.count);
-  return varyPattern(
-    context.track,
-    stepsFor(context.pattern, context.track),
-    {
-      barStart,
-      barEnd,
-      intensity,
-      seed: context.baseSeed + attempt * 7919,
-      scaleLength: context.scaleLength,
-    },
-  );
+  return varyPattern(context.track, stepsFor(context.pattern, context.track), {
+    barStart,
+    barEnd,
+    intensity,
+    seed: context.baseSeed + attempt * 7919,
+    scaleLength: context.scaleLength,
+  });
 }
 
 function transformVariation(
@@ -123,50 +113,7 @@ function transformVariation(
   );
 }
 
-function labelFor(context: VariationContext, attempt: number): string {
-  const { track, barStart, barEnd } = context;
-  const name = TRACK_LABELS[track];
-  const bars =
-    barStart === barEnd
-      ? `bar ${barStart + 1}`
-      : `bars ${barStart + 1}–${barEnd + 1}`;
-
-  switch (context.kind) {
-    case "vary":
-      return `${intensityWord(intensityFor(attempt, context.count))} the ${name} in ${bars}`;
-    case "fill":
-      return `Fill ${bars} on the ${name}`;
-    case "simplify":
-      return `Simplify the ${name} in ${bars}`;
-    case "darker":
-      return `Make the ${name} darker in ${bars}`;
-    case "brighter":
-      return `Brighten the ${name} in ${bars}`;
-  }
-}
-
-function rationaleFor(context: VariationContext, attempt: number): string {
-  const name = TRACK_LABELS[context.track];
-  switch (context.kind) {
-    case "vary":
-      return intensityFor(attempt, context.count) < 0.34
-        ? `A light touch on the ${name} keeps the loop familiar while opening it up.`
-        : `Moving a few ${name} hits off the grid adds motion without losing the pocket.`;
-    case "fill":
-      return `A ${FILL_STYLES[attempt % FILL_STYLES.length]} on the last beat signals the loop turn without changing the groove.`;
-    case "simplify":
-      return `Trimming non-downbeat ${name} hits leaves space and locks the pocket.`;
-    case "darker":
-      return `Pulling the ${name} down a step makes the loop sit back without losing its shape.`;
-    case "brighter":
-      return `Lifting the ${name} adds air so the loop feels more awake.`;
-  }
-}
-
-function buildVariation(
-  context: VariationContext,
-  attempt: number,
-): Variation {
+function buildTrackPatch(context: VariationContext, attempt: number): Patch {
   const fillStyle = FILL_STYLES[attempt % FILL_STYLES.length]!;
   const drumTrack =
     context.track === "kick" ||
@@ -179,31 +126,77 @@ function buildVariation(
   if (context.kind === "vary") {
     patch = vary(context, attempt);
   } else if (context.kind === "fill") {
-    if (drumTrack) {
-      patch = addFill(
-        context.pattern[drumTrack] as unknown as DrumSteps,
-        context.barEnd,
-        fillStyle,
-        { track: drumTrack },
-      );
-    } else {
-      patch = vary(context, attempt, context.barEnd, context.barEnd);
-    }
+    if (!drumTrack) return [];
+    patch = addFill(
+      context.pattern[drumTrack] as unknown as DrumSteps,
+      context.barEnd,
+      fillStyle,
+      { track: drumTrack },
+    );
   } else {
     patch = transformVariation(context, attempt, context.kind);
   }
 
-  // Empty rows (or a no-op transform) can produce nothing; fall back to a
-  // straightforward vary so every attempt has something to propose.
-  if (patch.length === 0) {
-    patch = vary(context, attempt);
-  }
+  return patch;
+}
 
-  return {
-    patch,
-    label: labelFor(context, attempt),
-    rationale: rationaleFor(context, attempt),
-  };
+function tracksForKind(tracks: TrackKind[], kind: VariationKind): TrackKind[] {
+  if (kind === "fill") {
+    return tracks.filter((track) => track !== "bass" && track !== "keys");
+  }
+  if (kind === "darker" || kind === "brighter") {
+    return tracks.filter((track) => track === "bass" || track === "keys");
+  }
+  return tracks;
+}
+
+function labelForTracks(
+  tracks: readonly TrackKind[],
+  context: Omit<VariationContext, "track">,
+): string {
+  const labels = tracks.map((track) => TRACK_LABELS[track]);
+  const bars =
+    context.barStart === context.barEnd
+      ? `bar ${context.barStart + 1}`
+      : `bars ${context.barStart + 1}-${context.barEnd + 1}`;
+  const kind =
+    context.kind === "vary"
+      ? "Vary"
+      : context.kind === "fill"
+        ? "Fill"
+        : context.kind === "simplify"
+          ? "Simplify"
+          : context.kind === "darker"
+            ? "Darker"
+            : "Brighter";
+  return `${kind} ${bars} (${labels.join(", ")})`;
+}
+
+function rationaleForTracks(
+  tracks: readonly TrackKind[],
+  kind: VariationKind,
+  attempt: number,
+  count: number,
+): string {
+  const names = tracks.map((track) => TRACK_LABELS[track]);
+  const joined =
+    names.length > 1
+      ? `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`
+      : names[0]!;
+  switch (kind) {
+    case "vary":
+      return intensityFor(attempt, count) < 0.34
+        ? `A light touch across ${joined} keeps the loop familiar while opening it up.`
+        : `Small shifts across ${joined} add motion without losing the pocket.`;
+    case "fill":
+      return `A ${FILL_STYLES[attempt % FILL_STYLES.length]} across ${joined} signals the loop turn.`;
+    case "simplify":
+      return `Trimming non-downbeat hits across ${joined} leaves space and locks the pocket.`;
+    case "darker":
+      return `Pulling ${joined} down a step makes the loop sit back without losing its shape.`;
+    case "brighter":
+      return `Lifting ${joined} adds air so the loop feels more awake.`;
+  }
 }
 
 function patchKey(patch: Patch): string {
@@ -212,38 +205,43 @@ function patchKey(patch: Patch): string {
 
 export default defineAction({
   description:
-    "Generate a few distinct variations of one track in a bar range and put them straight into the idea tray, with no LLM call. Bar indexes are zero-based and inclusive, just like vary-pattern. Kinds: vary (new rhythm/movement), fill (a fill at barEnd), simplify / darker / brighter (a directional edit with a fresh rhythmic overlay). author defaults to \"You\"; count defaults to 3 (max 6 so the tray never overflows).",
-  schema: z.object({
-    sessionId: z.string().min(1).describe("Session id."),
-    track: trackKindSchema,
-    barStart: z.coerce
-      .number()
-      .int()
-      .min(0)
-      .describe("Zero-based first bar of the range (inclusive)."),
-    barEnd: z.coerce
-      .number()
-      .int()
-      .min(0)
-      .describe("Zero-based last bar of the range (inclusive)."),
-    kind: z
-      .enum(["vary", "fill", "simplify", "darker", "brighter"])
-      .default("vary")
-      .describe("What kind of variation to propose."),
-    author: z
-      .string()
-      .min(1)
-      .max(40)
-      .default("You")
-      .describe('Who suggested the ideas; defaults to "You".'),
-    count: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(6)
-      .default(3)
-      .describe("How many distinct ideas to propose (1-6, default 3)."),
-  }),
+    'Generate a few distinct variations across one or more selected tracks and put them straight into the idea tray, with no LLM call. Pass exactly one of track (backward compatible) or tracks. Bar indexes are zero-based and inclusive. Fill applies to drums; darker and brighter apply to bass and keys. author defaults to "You"; count defaults to 3 (max 6).',
+  schema: z
+    .object({
+      sessionId: z.string().min(1).describe("Session id."),
+      track: trackKindSchema.optional(),
+      tracks: z.array(trackKindSchema).min(1).optional(),
+      barStart: z.coerce
+        .number()
+        .int()
+        .min(0)
+        .describe("Zero-based first bar of the range (inclusive)."),
+      barEnd: z.coerce
+        .number()
+        .int()
+        .min(0)
+        .describe("Zero-based last bar of the range (inclusive)."),
+      kind: z
+        .enum(["vary", "fill", "simplify", "darker", "brighter"])
+        .default("vary")
+        .describe("What kind of variation to propose."),
+      author: z
+        .string()
+        .min(1)
+        .max(40)
+        .default("You")
+        .describe('Who suggested the ideas; defaults to "You".'),
+      count: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(6)
+        .default(3)
+        .describe("How many distinct ideas to propose (1-6, default 3)."),
+    })
+    .refine((args) => Boolean(args.track) !== Boolean(args.tracks), {
+      message: "Pass exactly one of track or tracks.",
+    }),
   run: async (args) => {
     const { detail, pattern, bars } = await loadSessionPattern(args.sessionId);
     const range = resolveBarRange(args.barStart, args.barEnd, bars);
@@ -251,9 +249,15 @@ export default defineAction({
     const count = args.count ?? 3;
     const author = args.author?.trim() || "You";
     const kind: VariationKind = args.kind ?? "vary";
-    const context: VariationContext = {
+    const tracks = tracksForKind(
+      [...new Set(args.tracks ?? [args.track!])],
+      kind,
+    );
+    if (tracks.length === 0) {
+      throw new Error(`No selected tracks support ${kind} variations.`);
+    }
+    const baseContext = {
       sessionId: args.sessionId,
-      track: args.track,
       barStart: range.barStart,
       barEnd: range.barEnd,
       bars,
@@ -270,13 +274,35 @@ export default defineAction({
     const seen = new Set<string>();
     const maxAttempts = Math.max(count * 8, 12);
 
-    for (let attempt = 0; attempt < maxAttempts && variants.length < count; attempt++) {
-      const variation = buildVariation(context, attempt);
-      if (variation.patch.length === 0) continue;
-      const key = patchKey(variation.patch);
+    for (
+      let attempt = 0;
+      attempt < maxAttempts && variants.length < count;
+      attempt++
+    ) {
+      const perTrack = tracks
+        .map((track) => ({
+          track,
+          patch: buildTrackPatch({ ...baseContext, track }, attempt),
+        }))
+        .filter(({ patch: trackPatch }) => trackPatch.length > 0);
+      const patch = perTrack.flatMap(({ patch: trackPatch }) => trackPatch);
+      if (patch.length === 0) continue;
+      const key = patchKey(patch);
       if (seen.has(key)) continue;
       seen.add(key);
-      variants.push(variation);
+      variants.push({
+        patch,
+        label: labelForTracks(
+          perTrack.map(({ track }) => track),
+          baseContext,
+        ),
+        rationale: rationaleForTracks(
+          perTrack.map(({ track }) => track),
+          kind,
+          attempt,
+          count,
+        ),
+      });
     }
 
     if (variants.length === 0) {

@@ -233,11 +233,90 @@ export const CELL_W = 18;
 export const CELL_PITCH = 20;
 export const GROUP_PITCH = 4 * CELL_PITCH + 4;
 export const BAR_PITCH = 4 * GROUP_PITCH + 12;
+export const MIN_CELL_W = 9;
+/** Below this width the spacing stops scaling and sits at its floor. */
+const GAP_BASE_CELL_W = 12;
+
+export type GridMetrics = {
+  cellW: number;
+  cellPitch: number;
+  groupPitch: number;
+  barPitch: number;
+  stepGap: number;
+  groupPadding: number;
+  barGap: number;
+  bodyWidth: number;
+};
+
+function metricsForCellWidth(cellW: number, bars: number): GridMetrics {
+  const scale = Math.max(0, cellW - GAP_BASE_CELL_W);
+  // Floors keep beats and bars visually grouped even at the smallest size.
+  const stepGap = Math.max(1, scale / 3);
+  const groupPadding = Math.max(3, scale);
+  const barGap = Math.max(6, scale * 2);
+  const cellPitch = cellW + stepGap;
+  const groupPitch = 4 * cellW + 3 * stepGap + groupPadding;
+  const barPitch = 4 * groupPitch + barGap;
+  return {
+    cellW,
+    cellPitch,
+    groupPitch,
+    barPitch,
+    stepGap,
+    groupPadding,
+    barGap,
+    bodyWidth: bars * barPitch,
+  };
+}
+
+/** Fits the grid to available width: the largest cell size whose loop fits. */
+export function gridMetricsForWidth(
+  availableWidth: number,
+  bars: number,
+): GridMetrics {
+  if (bars <= 0) return metricsForCellWidth(MIN_CELL_W, 0);
+  if (metricsForCellWidth(CELL_W, bars).bodyWidth <= availableWidth) {
+    return metricsForCellWidth(CELL_W, bars);
+  }
+  let lo = MIN_CELL_W;
+  let hi = CELL_W;
+  for (let i = 0; i < 24; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (metricsForCellWidth(mid, bars).bodyWidth <= availableWidth) lo = mid;
+    else hi = mid;
+  }
+  return metricsForCellWidth(lo, bars);
+}
+
+const DEFAULT_GRID_METRICS = metricsForCellWidth(CELL_W, 1);
+
+export function barLeft(bar: number, metrics = DEFAULT_GRID_METRICS): number {
+  return bar * metrics.barPitch;
+}
+
+export function barWidth(metrics = DEFAULT_GRID_METRICS): number {
+  return metrics.barPitch - metrics.barGap;
+}
+
+export function selectionBounds(
+  barStart: number,
+  barEnd: number,
+  metrics = DEFAULT_GRID_METRICS,
+): { left: number; width: number } {
+  return {
+    left: barLeft(barStart, metrics),
+    width: (barEnd - barStart + 1) * metrics.barPitch - metrics.barGap,
+  };
+}
 
 /** Left offset (px) of a step inside the grid body. */
-export function stepX(step: number): number {
+export function stepX(step: number, metrics = DEFAULT_GRID_METRICS): number {
   const bar = Math.floor(step / STEPS_PER_BAR);
   const inBar = step % STEPS_PER_BAR;
   const group = Math.floor(inBar / 4);
-  return bar * BAR_PITCH + group * GROUP_PITCH + (inBar % 4) * CELL_PITCH;
+  return (
+    bar * metrics.barPitch +
+    group * metrics.groupPitch +
+    (inBar % 4) * metrics.cellPitch
+  );
 }

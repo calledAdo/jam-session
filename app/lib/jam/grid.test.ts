@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { activeStepRatio, patchPreviewRows, type TrackData } from "./grid";
+import {
+  activeStepRatio,
+  barLeft,
+  barWidth,
+  gridMetricsForWidth,
+  MIN_CELL_W,
+  patchPreviewRows,
+  selectionBounds,
+  stepX,
+  type TrackData,
+} from "./grid";
 
 describe("activeStepRatio", () => {
   it("returns the proportion of active numeric steps", () => {
@@ -63,5 +73,38 @@ describe("patchPreviewRows", () => {
         changed: [1],
       },
     ]);
+  });
+});
+
+describe("responsive grid metrics", () => {
+  it("fits 8 bars in a 1920px window with the sidebar open and keeps positions aligned", () => {
+    const metrics = gridMetricsForWidth(1472, 8);
+
+    expect(metrics.cellW).toBeGreaterThanOrEqual(MIN_CELL_W);
+    expect(metrics.bodyWidth).toBeLessThanOrEqual(1472);
+    expect(metrics.bodyWidth).toBeGreaterThan(1472 - 16);
+    expect(stepX(4, metrics)).toBe(metrics.groupPitch);
+    expect(stepX(16, metrics)).toBe(metrics.barPitch);
+    expect(barLeft(1, metrics)).toBe(metrics.barPitch);
+    expect(barWidth(metrics)).toBe(metrics.barPitch - metrics.barGap);
+    expect(selectionBounds(2, 3, metrics)).toEqual({
+      left: 2 * metrics.barPitch,
+      width: 2 * metrics.barPitch - metrics.barGap,
+    });
+  });
+
+  it("stops shrinking at the minimum cell width and scrolls when the viewport is too narrow", () => {
+    const metrics = gridMetricsForWidth(900, 8);
+
+    expect(metrics.cellW).toBe(MIN_CELL_W);
+    expect(metrics.bodyWidth).toBeGreaterThan(900);
+  });
+
+  it("caps cells at the existing 18px size when there is room", () => {
+    const metrics = gridMetricsForWidth(4000, 8);
+
+    expect(metrics.cellW).toBe(18);
+    expect(metrics.barPitch).toBe(348);
+    expect(metrics.bodyWidth).toBe(2784);
   });
 });

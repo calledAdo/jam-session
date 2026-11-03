@@ -554,16 +554,15 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     if (!selection) return;
     setMenuBusy(true);
     try {
-      for (const track of selection.tracks) {
-        await variationsM.mutateAsync({
-          sessionId,
-          track,
-          barStart: selection.barStart,
-          barEnd: selection.barEnd,
-          kind,
-          author: "You",
-        });
-      }
+      await variationsM.mutateAsync({
+        sessionId,
+        tracks: selection.tracks,
+        barStart: selection.barStart,
+        barEnd: selection.barEnd,
+        kind,
+        author: "You",
+        count: 3,
+      });
       notify(`New ${kind} ideas in the tray`);
     } catch (e) {
       notify(errorMessage(e));

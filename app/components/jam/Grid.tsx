@@ -1,15 +1,25 @@
 import { IconArrowUpRight, IconMinus, IconPlus } from "@tabler/icons-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { getJamEngine } from "@/lib/jam/audio";
 import {
-  BAR_PITCH,
-  CELL_W,
   STEPS_PER_BAR,
   TRACK_ORDER,
+  barLeft,
+  barWidth,
+  gridMetricsForWidth,
   numeralChoices,
+  selectionBounds,
   selectionFromCorners,
   stepX,
+  type GridMetrics,
   type Selection,
   type StepValue,
   type TrackData,
@@ -95,6 +105,7 @@ const StepRow = memo(function StepRow({
   row,
   steps,
   bars,
+  metrics,
   flashing,
   ghosts,
   onFocusCell,
@@ -103,6 +114,7 @@ const StepRow = memo(function StepRow({
   row: number;
   steps: StepValue[];
   bars: number;
+  metrics: GridMetrics;
   flashing: ReadonlySet<string>;
   ghosts: ReadonlySet<string>;
   onFocusCell?: (index: number) => void;
@@ -132,13 +144,25 @@ const StepRow = memo(function StepRow({
         );
       }
       groups.push(
-        <span className="jam-step-group" key={group}>
+        <span
+          className="jam-step-group"
+          key={group}
+          style={{
+            width: metrics.groupPitch,
+            gap: metrics.stepGap,
+            paddingRight: metrics.groupPadding,
+          }}
+        >
           {cells}
         </span>,
       );
     }
     out.push(
-      <span className="jam-bar" key={bar}>
+      <span
+        className="jam-bar"
+        key={bar}
+        style={{ width: metrics.groupPitch * 4, marginRight: metrics.barGap }}
+      >
         {groups}
       </span>,
     );
@@ -157,6 +181,7 @@ const StepRow = memo(function StepRow({
 const KeysRow = memo(function KeysRow({
   steps,
   bars,
+  metrics,
   flashing,
   ghosts,
   choices,
@@ -164,6 +189,7 @@ const KeysRow = memo(function KeysRow({
 }: {
   steps: StepValue[];
   bars: number;
+  metrics: GridMetrics;
   flashing: ReadonlySet<string>;
   ghosts: ReadonlySet<string>;
   choices: string[];
@@ -179,7 +205,11 @@ const KeysRow = memo(function KeysRow({
         const value = steps[bar];
         const key = `keys:${bar}`;
         return (
-          <span className="jam-bar" key={bar}>
+          <span
+            className="jam-bar"
+            key={bar}
+            style={{ width: barWidth(metrics), marginRight: metrics.barGap }}
+          >
             <select
               className="jam-chord-select jam-mono"
               data-cell
@@ -211,28 +241,34 @@ const KeysRow = memo(function KeysRow({
 function Playhead({
   scrollerRef,
   follow,
+  metrics,
 }: {
   scrollerRef: React.RefObject<HTMLDivElement | null>;
   follow: boolean;
+  metrics: GridMetrics;
 }) {
   const [step, setStep] = useState(-1);
   useEffect(() => getJamEngine().onStep(setStep), []);
   useEffect(() => {
     const scroller = scrollerRef.current;
     if (!follow || !scroller || step < 0 || step % STEPS_PER_BAR !== 0) return;
-    const x = stepX(step);
+    const x = stepX(step, metrics);
     if (
       x < scroller.scrollLeft ||
-      x > scroller.scrollLeft + scroller.clientWidth - BAR_PITCH
+      x > scroller.scrollLeft + scroller.clientWidth - metrics.barPitch
     ) {
       scroller.scrollTo({ left: Math.max(0, x - 8), behavior: "smooth" });
     }
-  }, [step, scrollerRef, follow]);
+  }, [step, scrollerRef, follow, metrics]);
   if (step < 0) return null;
   return (
     <div
       className="jam-playhead"
-      style={{ left: stepX(step), height: 5 * ROW_PITCH, width: CELL_W }}
+      style={{
+        left: stepX(step, metrics),
+        height: 5 * ROW_PITCH,
+        width: metrics.cellW,
+      }}
       aria-hidden="true"
     />
   );
@@ -261,7 +297,21 @@ export function Grid(props: GridProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const latest = useRef(props);
   const [bassIndex, setBassIndex] = useState(0);
+  const [metrics, setMetrics] = useState(() =>
+    gridMetricsForWidth(Number.POSITIVE_INFINITY, bars),
+  );
   latest.current = props;
+
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) return;
+    const measure = () =>
+      setMetrics(gridMetricsForWidth(scroller.clientWidth, bars));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [bars]);
 
   const trackByKind = (kind: TrackKind) =>
     tracks.find((track) => track.kind === kind);
@@ -387,15 +437,20 @@ export function Grid(props: GridProps) {
     }
   };
 
-  const bodyWidth = bars * BAR_PITCH;
+  const bodyWidth = metrics.bodyWidth;
   const bodyHeight = HEADER_H + 5 * ROW_PITCH;
   const rect = selection
     ? (() => {
         const firstRow = TRACK_ORDER.indexOf(selection.tracks[0]!);
+        const bounds = selectionBounds(
+          selection.barStart,
+          selection.barEnd,
+          metrics,
+        );
         return {
-          left: selection.barStart * BAR_PITCH - 3,
+          left: bounds.left,
           top: rowTop(firstRow) - 4,
-          width: (selection.barEnd - selection.barStart + 1) * BAR_PITCH - 4,
+          width: bounds.width,
           height: selection.tracks.length * ROW_PITCH - 2,
         };
       })()
@@ -514,7 +569,13 @@ export function Grid(props: GridProps) {
             className="jam-grid-body"
             role="group"
             aria-label="Loop steps"
-            style={{ width: bodyWidth, height: bodyHeight }}
+            style={
+              {
+                width: bodyWidth,
+                height: bodyHeight,
+                "--jam-cell-width": `${metrics.cellW}px`,
+              } as React.CSSProperties
+            }
             onPointerDown={onPointerDown}
             onKeyDown={onGridKeyDown}
           >
@@ -534,8 +595,8 @@ export function Grid(props: GridProps) {
                   aria-pressed={isSelected}
                   aria-label={`Select bar ${bar + 1} across all tracks`}
                   style={{
-                    left: bar * BAR_PITCH,
-                    width: BAR_PITCH - 8,
+                    left: barLeft(bar, metrics),
+                    width: barWidth(metrics),
                     height: HEADER_H - 5,
                   }}
                   onClick={(event) => {
@@ -563,6 +624,7 @@ export function Grid(props: GridProps) {
                 row={row}
                 steps={trackByKind(kind)?.steps ?? []}
                 bars={bars}
+                metrics={metrics}
                 flashing={props.flashing}
                 ghosts={props.ghosts}
                 {...(kind === "bass" ? { onFocusCell: setBassIndex } : {})}
@@ -571,12 +633,17 @@ export function Grid(props: GridProps) {
             <KeysRow
               steps={trackByKind("keys")?.steps ?? []}
               bars={bars}
+              metrics={metrics}
               flashing={props.flashing}
               ghosts={props.ghosts}
               choices={choices}
               onPickChord={props.onPickChord}
             />
-            <Playhead scrollerRef={scrollerRef} follow={!selection} />
+            <Playhead
+              scrollerRef={scrollerRef}
+              follow={!selection}
+              metrics={metrics}
+            />
             {rect ? (
               <div
                 className="jam-select-rect"

@@ -1061,17 +1061,13 @@
 }
 .jam-step-group {
   display: inline-flex;
-  width: 84px;
   align-items: center;
-  gap: 2px;
-  margin-right: 0;
-  padding-right: 6px;
   vertical-align: top;
 }
 .jam-cell {
   position: relative;
   display: inline-grid;
-  width: 18px;
+  width: var(--jam-cell-width, 18px);
   height: 30px;
   flex: none;
   place-items: center;
@@ -1125,7 +1121,7 @@
   animation: jam-flash 600ms ease-out;
 }
 .jam-chord-select {
-  width: 320px;
+  width: 100%;
   height: 29px;
   padding: 0 9px;
   border: 1px solid #536a4b;
@@ -1226,20 +1222,18 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .jam-idea-tray__list {
-  display: flex;
+  display: grid;
   min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 286px), 1fr));
   gap: 8px;
-  overflow-x: auto;
   padding: 1px 1px 8px;
-  scrollbar-color: #536167 #192024;
-  scrollbar-width: thin;
 }
 .jam-idea {
   --jam-idea-tone: var(--jam-amber);
   display: flex;
-  width: 286px;
+  width: 100%;
+  min-width: 0;
   min-height: 178px;
-  flex: 0 0 286px;
   flex-direction: column;
   padding: 9px;
   border: 1px solid #514326;
@@ -1731,10 +1725,6 @@
   }
   .jam-grid-legend__hint {
     margin-left: 0;
-  }
-  .jam-idea {
-    width: 264px;
-    flex-basis: 264px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

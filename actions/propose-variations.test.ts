@@ -98,4 +98,65 @@ describe("propose-variations", () => {
       ).toBe(2);
     }
   });
+
+  it("makes the requested number of merged, changed ideas for a multi-track selection", async () => {
+    const before = await createSession({ bars: 4, seed: "house" });
+    const result = await proposeVariations.run({
+      sessionId: before.session.id,
+      tracks: ["kick", "snare", "hat", "bass", "keys"],
+      barStart: 0,
+      barEnd: 3,
+      kind: "vary",
+      author: "You",
+      count: 3,
+    });
+
+    expect(result.ideas).toHaveLength(3);
+    for (const idea of result.ideas) {
+      const changedTracks = new Set(idea.patch.map((entry) => entry.track));
+      expect(changedTracks.size).toBeGreaterThan(1);
+      expect(idea.label).toMatch(/^Vary bars 1-4 \(.+\)$/);
+      expect(idea.rationale.length).toBeGreaterThan(0);
+      for (const entry of idea.patch) {
+        const original = row(before, entry.track);
+        entry.steps.forEach((value, offset) => {
+          expect(value).not.toBe(original[entry.fromStep + offset]);
+        });
+      }
+    }
+  });
+
+  it("skips tracks that do not support the selected variation kind", async () => {
+    const fillSession = await createSession({ bars: 4, seed: "house" });
+    const fills = await proposeVariations.run({
+      sessionId: fillSession.session.id,
+      tracks: ["kick", "hat", "bass", "keys"],
+      barStart: 0,
+      barEnd: 3,
+      kind: "fill",
+      count: 1,
+    });
+    expect(fills.ideas[0]!.patch.length).toBeGreaterThan(0);
+    expect(
+      fills.ideas[0]!.patch.every((entry) =>
+        ["kick", "hat"].includes(entry.track),
+      ),
+    ).toBe(true);
+
+    const darkerSession = await createSession({ bars: 4, seed: "house" });
+    const darker = await proposeVariations.run({
+      sessionId: darkerSession.session.id,
+      tracks: ["kick", "snare", "bass", "keys"],
+      barStart: 0,
+      barEnd: 3,
+      kind: "darker",
+      count: 1,
+    });
+    expect(darker.ideas[0]!.patch.length).toBeGreaterThan(0);
+    expect(
+      darker.ideas[0]!.patch.every((entry) =>
+        ["bass", "keys"].includes(entry.track),
+      ),
+    ).toBe(true);
+  });
 });
