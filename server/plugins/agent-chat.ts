@@ -31,6 +31,7 @@ export default createAgentChatPlugin({
     ],
     appApprovalPage: true,
   },
+  frameworkTools: { extensions: true },
   initialToolNames: INITIAL_TOOL_NAMES,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are the Chat app agent.
