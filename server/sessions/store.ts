@@ -486,10 +486,24 @@ export async function proposeIdeas(
 
   const session = await requireSession(input.sessionId, db);
   const pending = await loadPendingIdeas(input.sessionId, db);
-  if (pending.length + input.ideas.length > MAX_PENDING_IDEAS) {
+  if (input.ideas.length > MAX_PENDING_IDEAS) {
     inputError(
-      `The idea tray holds at most ${MAX_PENDING_IDEAS} pending ideas. Keep or toss one first.`,
+      `The idea tray holds at most ${MAX_PENDING_IDEAS} pending ideas. Propose fewer at once.`,
     );
+  }
+  // A full tray never blocks a new idea: the oldest pending cards slide out
+  // (tossed without a taste signal, since the user never judged them).
+  const overflow = pending.length + input.ideas.length - MAX_PENDING_IDEAS;
+  if (overflow > 0) {
+    await db
+      .update(schema.ideas)
+      .set({ status: "tossed" })
+      .where(
+        inArray(
+          schema.ideas.id,
+          pending.slice(0, overflow).map((idea) => idea.id),
+        ),
+      );
   }
 
   const baseTime = Date.now();

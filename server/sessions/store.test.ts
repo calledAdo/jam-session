@@ -265,7 +265,7 @@ describe("jam session store", () => {
     await expect(keepIdea(idea!.id)).rejects.toThrow(/already tossed/);
   });
 
-  it("rejects invalid edits and tray overflow", async () => {
+  it("rejects invalid edits and slides the oldest idea out of a full tray", async () => {
     const detail = await createSession({ bars: 1, seed: "empty" });
     const sessionId = detail.session.id;
 
@@ -313,6 +313,10 @@ describe("jam session store", () => {
           },
         ],
       }),
-    ).rejects.toThrow(/at most 6/);
+    ).resolves.toHaveLength(1);
+
+    const tray = await getSession(sessionId);
+    expect(tray.ideas.map((idea) => idea.label)).not.toContain("Idea 0");
+    expect(tray.ideas).toHaveLength(6);
   });
 });
