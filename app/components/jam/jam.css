@@ -32,9 +32,9 @@
 .jam-root *::after {
   box-sizing: border-box;
 }
-.jam-root button,
-.jam-root input,
-.jam-root select {
+:where(.jam-root) button,
+:where(.jam-root) input,
+:where(.jam-root) select {
   font: inherit;
 }
 .jam-mono {
