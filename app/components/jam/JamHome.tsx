@@ -1,6 +1,8 @@
 import { useActionMutation, useActionQuery } from "@agent-native/core/client/hooks";
 import { Link, useNavigate } from "react-router";
 
+import { isSparkSessionName } from "../../../server/music/spark";
+
 import "./jam.css";
 
 type SessionRow = {
@@ -76,7 +78,10 @@ export function JamHome() {
                   className="jam-panel flex items-center justify-between px-4 py-3"
                   style={{ textDecoration: "none", color: "inherit" }}
                 >
-                  <span className="font-semibold">{s.name}</span>
+                  <span className="font-semibold">
+                    {isSparkSessionName(s.name) ? "☀️ " : ""}
+                    {s.name}
+                  </span>
                   <span className="jam-mono text-xs" style={{ color: "var(--jam-dim)" }}>
                     {s.bpm} BPM - {s.root} {s.scale} - {s.bars} bars
                   </span>
