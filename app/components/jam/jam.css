@@ -847,7 +847,7 @@
   border-radius: 3px;
   background: #201c15;
   color: #e4c77f;
-  font-size: 10px;
+  font-size: 13px;
   cursor: pointer;
 }
 .jam-prompt-chip:hover {
@@ -1719,7 +1719,7 @@
     width: 100%;
   }
   .jam-prompt-chip {
-    font-size: 9px;
+    font-size: 13px;
   }
   .jam-grid-legend__hint {
     margin-left: 0;

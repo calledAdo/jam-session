@@ -799,11 +799,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       message: "Give me a swing knob for this loop",
     },
   ];
-  const tasteLabel = taste?.kept.length
-    ? taste.kept.slice(0, 2).join(" · ")
-    : taste?.tossed.length
-      ? `avoids ${taste.tossed[0]}`
-      : "still learning";
+  const tasteTooltip = taste
+    ? `Likes: ${taste.kept.join("; ") || "none yet"}\nAvoids: ${taste.tossed.join("; ") || "nothing yet"}`
+    : "Taste signals from kept and tossed ideas";
   const hatSteps = data?.tracks.find((track) => track.kind === "hat")?.steps;
   const hatEnergy = hatSteps?.length ? activeStepRatio(hatSteps) : 0.5;
 
@@ -819,12 +817,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           </span>
           <h1>{session.name}</h1>
         </div>
-        <div
-          className="jam-taste"
-          title={taste?.summary ?? "Taste signals from kept and tossed ideas"}
-        >
+        <div className="jam-taste" title={tasteTooltip}>
           <span className="jam-taste__label">YOUR TASTE</span>
-          <span className="jam-taste__value">{tasteLabel}</span>
+          <span className="jam-taste__value">
+            {taste?.summary ?? "Still learning your taste"}
+          </span>
         </div>
         <div className="jam-session__actions">
           <button

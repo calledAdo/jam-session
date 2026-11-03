@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { summarizeTaste } from "../server/music/taste.js";
 import { getRecentTaste } from "../server/sessions/store.js";
 
 export default defineAction({
@@ -15,10 +16,7 @@ export default defineAction({
     const rows = await getRecentTaste(limit);
     const kept = rows.filter((r) => r.weight > 0).map((r) => r.signal);
     const tossed = rows.filter((r) => r.weight < 0).map((r) => r.signal);
-    const summary =
-      rows.length === 0
-        ? "No taste signals yet."
-        : `Likes: ${kept.slice(0, 5).join("; ") || "none yet"}. Avoid: ${tossed.slice(0, 5).join("; ") || "nothing yet"}.`;
+    const summary = summarizeTaste(rows);
     return { kept, tossed, summary };
   },
 });
