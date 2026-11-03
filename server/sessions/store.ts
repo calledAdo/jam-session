@@ -1,3 +1,4 @@
+import { fail } from "@agent-native/core";
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
@@ -53,7 +54,7 @@ function nowIso(): string {
 }
 
 function inputError(message: string): never {
-  throw new Error(message);
+  return fail(message, { statusCode: 400 });
 }
 
 function parseJsonArray<T>(value: string, label: string): T[] {

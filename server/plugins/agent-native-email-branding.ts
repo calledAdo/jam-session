@@ -6,7 +6,7 @@ export default defineAppConfig({
   },
   app: {
     // This name appears in transactional emails. Change it to your product name.
-    name: "App",
+    name: "Jam Session",
     // The source template keeps a renamed app from inheriting first-party email branding.
     sourceTemplate: "chat",
     // Keep the template's authenticated entry explicit after renaming the app.

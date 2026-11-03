@@ -249,6 +249,24 @@ export function Grid(props: GridProps) {
     return () => body.removeEventListener("wheel", onWheel);
   }, []);
 
+  useEffect(() => {
+    if (picker === null) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!(event.target as HTMLElement | null)?.closest(".jam-picker")) {
+        setPicker(null);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPicker(null);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [picker]);
+
   const cellFromEvent = (target: EventTarget | null) => {
     const el = (target as HTMLElement | null)?.closest?.<HTMLElement>(
       "[data-cell]",
@@ -264,6 +282,7 @@ export function Grid(props: GridProps) {
     (event: React.PointerEvent) => {
       if (event.button !== 0) return;
       if ((event.target as HTMLElement).closest("[data-overlay]")) return;
+      if ((event.target as HTMLElement).closest("[data-bar-header]")) return;
       const start = cellFromEvent(event.target);
       setPicker(null);
       if (!start) {
@@ -272,6 +291,7 @@ export function Grid(props: GridProps) {
       }
       const shift = event.shiftKey;
       let moved = false;
+      const optionDrag = event.altKey;
       const move = (e: PointerEvent) => {
         const cur = cellFromEvent(document.elementFromPoint(e.clientX, e.clientY));
         if (!cur) return;
@@ -279,7 +299,9 @@ export function Grid(props: GridProps) {
           moved = true;
         }
         if (moved) {
-          latest.current.onSelect(selectionFromCorners(start, cur));
+          latest.current.onSelect(optionDrag
+            ? { tracks: [...TRACK_ORDER], barStart: start.bar, barEnd: start.bar }
+            : selectionFromCorners(start, cur));
         }
       };
       const up = () => {
@@ -350,6 +372,10 @@ export function Grid(props: GridProps) {
             <div
               key={bar}
               className="jam-mono jam-label"
+              data-bar-header
+              role="button"
+              tabIndex={0}
+              aria-label={`Select bar ${bar + 1}`}
               style={{
                 position: "absolute",
                 left: bar * BAR_PITCH,
@@ -359,6 +385,22 @@ export function Grid(props: GridProps) {
                 borderBottom: "1px solid var(--jam-line)",
                 paddingLeft: 4,
                 lineHeight: `${HEADER_H - 4}px`,
+              }}
+              onClick={(event) => {
+                const current = latest.current.selection;
+                const barStart = event.shiftKey && current
+                  ? Math.min(current.barStart, bar)
+                  : bar;
+                const barEnd = event.shiftKey && current
+                  ? Math.max(current.barEnd, bar)
+                  : bar;
+                onSelect({ tracks: [...TRACK_ORDER], barStart, barEnd });
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect({ tracks: [...TRACK_ORDER], barStart: bar, barEnd: bar });
+                }
               }}
             >
               {bar + 1}

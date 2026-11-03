@@ -31,14 +31,34 @@ export function IdeaTray({
         </p>
       ) : (
         <div className="flex gap-3 overflow-x-auto pb-1">
-          {ideas.map((idea) => {
+          {[...ideas].sort((a, b) =>
+            String((b as typeof b & { createdAt?: string }).createdAt ?? "")
+              .localeCompare(String((a as typeof a & { createdAt?: string }).createdAt ?? "")),
+          ).map((idea) => {
             const auditioning = auditionId === idea.id;
+            const author = idea.author.trim().toLowerCase();
+            const authorTone = author === "you" || author === "user"
+              ? "you"
+              : author === "drummer"
+                ? "drummer"
+                : author === "bassist"
+                  ? "bassist"
+                  : author === "keys"
+                    ? "keys"
+                    : "agent";
             return (
               <div key={idea.id} className="jam-idea" data-auditioning={auditioning ? "true" : undefined}>
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span
                     className="jam-author"
-                    data-you={idea.author === "You" ? "true" : undefined}
+                    data-you={authorTone === "you" ? "true" : undefined}
+                    data-author={authorTone}
+                    style={{
+                      background: authorTone === "you" ? "var(--jam-cyan)" :
+                        authorTone === "bassist" ? "#a78bfa" :
+                        authorTone === "keys" ? "#4ade80" : "var(--jam-amber)",
+                      color: authorTone === "keys" ? "#082b14" : undefined,
+                    }}
                   >
                     {idea.author}
                   </span>

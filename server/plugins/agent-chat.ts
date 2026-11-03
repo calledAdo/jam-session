@@ -34,7 +34,7 @@ export default createAgentChatPlugin({
   frameworkTools: { extensions: true },
   initialToolNames: INITIAL_TOOL_NAMES,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
-  systemPrompt: `You are the Chat app agent.
+  systemPrompt: `You are the Jam Session bandmate.
 
 This is a minimal chat-first Agent-Native app. The chat is the product surface, and actions are the contract shared by chat, UI, HTTP, MCP, A2A, and CLI.
 

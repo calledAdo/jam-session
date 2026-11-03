@@ -91,7 +91,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     noticeTimer.current = setTimeout(() => setNotice(null), 4500);
   }, []);
   const errorMessage = (e: unknown) =>
-    e instanceof Error ? e.message : "Something went wrong.";
+    e instanceof Error
+      ? e.message
+      : e && typeof e === "object" && "error" in e && typeof e.error === "string"
+        ? e.error
+        : "Something went wrong.";
 
   // --- Derived display state (audition overlays the pending idea client-side).
   const auditionIdea = data?.ideas.find((i) => i.id === auditionId) ?? null;
@@ -529,7 +533,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   if (error || !data) {
     return (
       <div className="jam-root p-6">
-        <p className="text-sm">Could not load this session.</p>
+        <p className="text-sm">{errorMessage(error)}</p>
         <Link to="/home" className="jam-btn mt-3">
           Back to jams
         </Link>
@@ -584,6 +588,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           onAskBandmate={onAskBandmate}
           menuBusy={menuBusy}
         />
+        <p className="jam-mono mt-2 px-1 text-[10px]" style={{ color: "var(--jam-dim)" }}>
+          Drag across bars to select · Space play/stop · ⌘Z undo
+        </p>
       </div>
       <IdeaTray
         ideas={data.ideas}

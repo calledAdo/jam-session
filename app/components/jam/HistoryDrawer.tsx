@@ -29,11 +29,24 @@ function editLabel(edit: HistoryEdit): string {
   return tracks ? `Edited ${tracks}` : "Grid edit";
 }
 
-function editAuthor(author: string): { label: string; agentName?: string } {
+function editAuthor(author: string): string {
   if (["you", "user"].includes(author.trim().toLowerCase())) {
-    return { label: "You" };
+    return "You";
   }
-  return { label: "Agent", agentName: author };
+  return author.trim() || "Agent";
+}
+
+function authorColor(author: string): string {
+  switch (author.toLowerCase()) {
+    case "you":
+      return "var(--jam-cyan)";
+    case "bassist":
+      return "#a78bfa";
+    case "keys":
+      return "#4ade80";
+    default:
+      return "var(--jam-amber)";
+  }
 }
 
 function formatTime(value: string): string {
@@ -79,7 +92,7 @@ export function HistoryDrawer({
   return (
     <Sheet open onOpenChange={(open) => (!open ? onClose() : undefined)}>
       <SheetContent
-        className="jam-root flex w-full flex-col border-[var(--jam-line)] p-0 sm:max-w-md"
+        className="jam-root flex w-full flex-col border-[var(--jam-line)] bg-[var(--jam-bg)] p-0 text-[var(--jam-text)] shadow-2xl sm:max-w-md"
         showClose={false}
         side="right"
       >
@@ -110,45 +123,29 @@ export function HistoryDrawer({
               Loading edits...
             </p>
           ) : error ? (
-            <p className="py-4 text-sm">Could not load edit history.</p>
+            <p className="py-4 text-sm">
+              {error instanceof Error ? error.message : "Could not load edit history."}
+            </p>
           ) : data?.length ? (
             <ol className="divide-y divide-[var(--jam-line)]">
               {data.map((edit, index) => {
                 const author = editAuthor(edit.author);
+                const color = authorColor(author);
                 const newest = index === 0;
                 return (
                   <li className="flex items-start gap-3 py-4" key={edit.id}>
                     <span
                       className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{
-                        background:
-                          author.label === "You"
-                            ? "var(--jam-cyan)"
-                            : "var(--jam-amber)",
-                      }}
+                      style={{ background: color }}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span
                           className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
-                          style={{
-                            borderColor:
-                              author.label === "You"
-                                ? "var(--jam-cyan)"
-                                : "var(--jam-amber)",
-                            color:
-                              author.label === "You"
-                                ? "var(--jam-cyan)"
-                                : "var(--jam-amber)",
-                          }}
+                          style={{ borderColor: color, color }}
                         >
-                          {author.label}
+                          {author}
                         </span>
-                        {author.agentName ? (
-                          <span className="truncate text-xs text-[var(--jam-dim)]">
-                            {author.agentName}
-                          </span>
-                        ) : null}
                       </div>
                       <p className="mt-2 text-sm">{editLabel(edit)}</p>
                       <time

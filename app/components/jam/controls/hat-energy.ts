@@ -5,14 +5,14 @@
  */
 export const HAT_ENERGY_NAME = "Hat Energy";
 
-export const HAT_ENERGY_HTML = `<div x-data="hatEnergy" class="p-3" style="background:#121216;border:1px solid #26262d;border-radius:6px;font-family:ui-monospace,monospace;color:#d9d9de">
+export const HAT_ENERGY_HTML = `<style>html,body{margin:0;min-height:100%;background:#101014;color:#d9d9de}body{padding:8px}</style><div x-data="hatEnergy" class="p-3" style="background:transparent;border:1px solid #26262d;border-radius:6px;font-family:ui-monospace,monospace;color:#d9d9de">
   <div class="flex items-center justify-between" style="margin-bottom:6px">
     <span style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#7b7b86">Hat energy</span>
     <span x-text="Math.round(level * 100) + '%'" style="font-size:12px;color:#2fd4e6"></span>
   </div>
   <input type="range" min="0" max="100" step="1" x-model.number="pct" @input="onInput()" style="width:100%;accent-color:#2fd4e6" :disabled="!sessionId" />
   <div x-show="!sessionId" style="font-size:10px;color:#ffb02e;margin-top:4px">No session in context</div>
-  <div x-show="err" x-text="err" style="font-size:10px;color:#ffb02e;margin-top:4px"></div>
+  <div x-show="$data.err" x-text="$data.err" style="font-size:10px;color:#ffb02e;margin-top:4px"></div>
 </div>
 <script>
   document.addEventListener("alpine:init", () => { Alpine.data("hatEnergy", () => ({
@@ -22,9 +22,21 @@ export const HAT_ENERGY_HTML = `<div x-data="hatEnergy" class="p-3" style="backg
     timer: null,
     get level() { return this.pct / 100; },
     init() {
-      const apply = (ctx) => { if (ctx && ctx.sessionId) this.sessionId = String(ctx.sessionId); };
-      apply(window.slotContext);
-      if (window.onSlotContext) window.onSlotContext(apply);
+      const apply = async (ctx) => {
+        if (!ctx || !ctx.sessionId) return;
+        this.sessionId = String(ctx.sessionId);
+        try {
+          const result = await appAction("get-session", { id: this.sessionId });
+          const track = result && result.tracks && result.tracks.find((item) => item.kind === "hat");
+          const steps = track && Array.isArray(track.steps) ? track.steps : [];
+          const hits = steps.filter((value) => typeof value === "number" && value > 0).length;
+          this.pct = steps.length ? Math.round((hits / steps.length) * 100) : 0;
+        } catch (e) {
+          this.err = String((e && e.message) || e);
+        }
+      };
+      void apply(window.slotContext);
+      if (window.onSlotContext) window.onSlotContext((ctx) => { void apply(ctx); });
     },
     onInput() {
       clearTimeout(this.timer);

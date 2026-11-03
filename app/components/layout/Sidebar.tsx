@@ -407,7 +407,17 @@ export function Sidebar({
           collapsed ? "items-center gap-1 px-1 py-2" : "pt-1",
         )}
       >
-        <HomeNavLink collapsed={collapsed} />
+        <Link
+          to="/home"
+          aria-label={collapsed ? "Jams" : undefined}
+          className={cn(
+            "mx-2 flex h-9 items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+            collapsed && "mx-0 w-9 justify-center px-0",
+          )}
+        >
+          <IconHome className="size-4 shrink-0" strokeWidth={1.8} />
+          {!collapsed ? <span>Jams</span> : null}
+        </Link>
         <ChatThreadsSection collapsed={collapsed} />
       </nav>
 
