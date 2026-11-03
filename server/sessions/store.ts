@@ -641,6 +641,50 @@ export async function undoLast(
   return { ...(await getSession(sessionId, db)), undone };
 }
 
+export async function revertToEdit(
+  sessionId: string,
+  editId: string,
+  db: DbHandle = getDb(),
+): Promise<SessionDetail & { revertedTo: Edit; revert: Edit }> {
+  const result = await db.transaction(async (tx) => {
+    const session = await requireSession(sessionId, tx);
+    const rows = await tx
+      .select()
+      .from(schema.edits)
+      .where(eq(schema.edits.sessionId, sessionId))
+      .orderBy(desc(schema.edits.createdAt), desc(schema.edits.id));
+    const edits = rows.map(toEdit);
+    const targetIndex = edits.findIndex((edit) => edit.id === editId);
+    if (targetIndex < 0) inputError(`Edit ${editId} not found in this session.`);
+    if (targetIndex === 0) inputError("The session is already at this edit.");
+
+    const patch = edits
+      .slice(0, targetIndex)
+      .flatMap((edit) => normalizePatch(edit.inverse, session.bars));
+    const tracks = mutableTrackMap(await loadTracks(sessionId, tx));
+    const inverse = await applyEntries(tx, tracks, patch);
+    const revert: Edit = {
+      id: newId(),
+      sessionId,
+      author: "You",
+      patch,
+      inverse,
+      createdAt: nowIso(),
+    };
+    await tx.insert(schema.edits).values({
+      id: revert.id,
+      sessionId,
+      patchJson: JSON.stringify(patch),
+      inverseJson: JSON.stringify(inverse),
+      author: revert.author,
+      createdAt: revert.createdAt,
+    });
+    return { revertedTo: edits[targetIndex]!, revert };
+  });
+
+  return { ...(await getSession(sessionId, db)), ...result };
+}
+
 export async function getTasteForSession(
   sessionId: string,
   db: DbHandle = getDb(),
@@ -673,6 +717,18 @@ export async function getEditsForSession(
     .from(schema.edits)
     .where(eq(schema.edits.sessionId, sessionId))
     .orderBy(schema.edits.createdAt, schema.edits.id);
+  return rows.map(toEdit);
+}
+
+export async function listEdits(
+  sessionId: string,
+  db: DbHandle = getDb(),
+): Promise<Edit[]> {
+  const rows = await db
+    .select()
+    .from(schema.edits)
+    .where(eq(schema.edits.sessionId, sessionId))
+    .orderBy(desc(schema.edits.createdAt), desc(schema.edits.id));
   return rows.map(toEdit);
 }
 

@@ -1,4 +1,6 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { defineClientAction } from "@agent-native/core/client/host";
+import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
 import {
   deleteClientAppState,
   writeClientAppState,
@@ -31,6 +33,7 @@ import {
 import { TAB_ID } from "@/lib/tab-id";
 
 import { Grid, type SelectionAction } from "./Grid";
+import { HistoryDrawer } from "./HistoryDrawer";
 import { IdeaTray } from "./IdeaTray";
 import { TransportBar } from "./TransportBar";
 
@@ -77,6 +80,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const [flashing, setFlashing] = useState<ReadonlySet<string>>(EMPTY_SET);
   const [notice, setNotice] = useState<string | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notify = useCallback((message: string) => {
@@ -134,6 +140,74 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       setPlaying(engine.playing);
     }
   }, [engine]);
+
+  useEffect(() => {
+    const registration = createAgentNativeWebMcpRegistration({
+      actions: [
+        defineClientAction<Record<string, never>, { playing: boolean }>({
+          name: "play",
+          title: "Play loop",
+          description: "Start playback of the current Jam Session loop.",
+          schema: { type: "object", properties: {}, additionalProperties: false },
+          run: async () => {
+            if (!engine.playing) await engine.start();
+            setPlaying(engine.playing);
+            return { playing: engine.playing };
+          },
+        }),
+        defineClientAction<Record<string, never>, { playing: boolean }>({
+          name: "stop",
+          title: "Stop loop",
+          description: "Stop playback of the current Jam Session loop.",
+          schema: { type: "object", properties: {}, additionalProperties: false },
+          run: () => {
+            engine.stop();
+            setPlaying(false);
+            return { playing: false };
+          },
+        }),
+        defineClientAction<{ id: string }, { auditioning: string }>({
+          name: "audition-idea",
+          title: "Audition idea",
+          description: "Preview an idea in this session's grid overlay.",
+          schema: {
+            type: "object",
+            properties: { id: { type: "string", minLength: 1 } },
+            required: ["id"],
+            additionalProperties: false,
+          },
+          run: ({ id }) => {
+            if (!dataRef.current?.ideas.some((idea) => idea.id === id)) {
+              throw new Error("That idea is not available in this session.");
+            }
+            setAuditionId(id);
+            return { auditioning: id };
+          },
+        }),
+      ],
+      getContext: () => ({
+        route: { name: "jam-session", params: { sessionId } },
+        resource: { type: "jam-session", id: sessionId },
+      }),
+    });
+
+    if (!registration.supported) {
+      console.info("[Jam Session] WebMCP is unavailable in this browser.");
+    }
+    void registration.start().then(
+      () => {
+        if (registration.supported) {
+          console.info(
+            `[Jam Session] WebMCP registered ${registration.registered} page actions.`,
+          );
+        }
+      },
+      (cause: unknown) => {
+        console.warn("[Jam Session] WebMCP registration failed.", cause);
+      },
+    );
+    return () => registration.stop();
+  }, [engine, sessionId]);
 
   // --- Flash cells changed by someone other than this tab.
   const prevTracks = useRef<{ id: string; tracks: SessionData["tracks"] } | null>(
@@ -482,7 +556,17 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         onChange={onTransport}
         onUnstick={onUnstick}
         notice={notice}
+        sessionId={sessionId}
       />
+      <div className="flex justify-end">
+        <button
+          className="jam-btn"
+          onClick={() => setHistoryOpen(true)}
+          type="button"
+        >
+          History
+        </button>
+      </div>
       <div className="jam-panel px-3 py-3">
         <Grid
           tracks={displayTracks}
@@ -508,6 +592,12 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         onKeep={onKeep}
         onToss={onToss}
       />
+      {historyOpen ? (
+        <HistoryDrawer
+          sessionId={sessionId}
+          onClose={() => setHistoryOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
