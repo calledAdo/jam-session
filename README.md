@@ -42,8 +42,8 @@ Jam Session runs locally: your machine, your data, your AI key.
 **Requirements:** Node.js 22.22+ and pnpm (`npm i -g pnpm`).
 
 ```bash
-git clone <this repo> jam-session
-cd jam-session/app
+git clone https://github.com/calledAdo/jam-session.git
+cd jam-session
 pnpm install
 cp .env.example .env    # then add your AI provider (below)
 pnpm dev                # opens http://localhost:8081
