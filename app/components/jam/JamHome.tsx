@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { useActionMutation, useActionQuery } from "@agent-native/core/client/hooks";
 import { Link, useNavigate } from "react-router";
 
@@ -21,6 +22,7 @@ const SEEDS = [
 ] as const;
 
 export function JamHome() {
+  const automationRequested = useRef(false);
   const navigate = useNavigate();
   const { data } = useActionQuery("list-sessions", {}) as {
     data: { sessions: SessionRow[] } | undefined;
@@ -29,6 +31,13 @@ export function JamHome() {
     onSuccess: (result: { session: { id: string } }) =>
       navigate(`/s/${result.session.id}`),
   });
+  const ensureSparkAutomation = useActionMutation("ensure-spark-automation");
+
+  useEffect(() => {
+    if (automationRequested.current) return;
+    automationRequested.current = true;
+    ensureSparkAutomation.mutate({}, { onError: () => {} });
+  }, [ensureSparkAutomation]);
 
   return (
     <div className="jam-root p-6">

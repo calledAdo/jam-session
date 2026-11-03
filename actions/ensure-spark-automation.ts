@@ -1,10 +1,10 @@
+import { defineAction } from "@agent-native/core/action";
 import {
   defineAutomation,
   listAutomationDefinitions,
 } from "@agent-native/core/triggers";
+import { z } from "zod";
 
-// Same framework identity the daily-spark action falls back to.
-const SEED_OWNER = "local@localhost";
 const AUTOMATION_NAME = "daily-spark";
 
 const PROMPT = [
@@ -13,12 +13,23 @@ const PROMPT = [
   "Reply with one line: the spark's name and its link.",
 ].join("\n");
 
-/** Seeds the 9:00 daily-spark automation once, if it does not already exist. */
-export default async (_nitroApp: unknown): Promise<void> => {
-  try {
-    const actor = { userEmail: SEED_OWNER };
+export default defineAction({
+  description:
+    "Ensure the current user's 9:00 daily-spark automation exists.",
+  schema: z.object({}),
+  run: async (_args, ctx) => {
+    const userEmail = ctx?.userEmail;
+    if (!userEmail) {
+      throw Object.assign(new Error("Authentication required to set up daily spark."), {
+        statusCode: 401,
+      });
+    }
+
+    const actor = { userEmail };
     const existing = await listAutomationDefinitions(actor, "personal");
-    if (existing.some((a: { name: string }) => a.name === AUTOMATION_NAME)) return;
+    if (existing.some((automation) => automation.name === AUTOMATION_NAME)) {
+      return { created: false, name: AUTOMATION_NAME };
+    }
 
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     await defineAutomation(actor, {
@@ -31,10 +42,7 @@ export default async (_nitroApp: unknown): Promise<void> => {
       body: PROMPT,
       domain: "jam-session",
     });
-  } catch (error) {
-    console.warn(
-      "[daily-spark] automation seed skipped:",
-      error instanceof Error ? error.message : error,
-    );
-  }
-};
+
+    return { created: true, name: AUTOMATION_NAME };
+  },
+});

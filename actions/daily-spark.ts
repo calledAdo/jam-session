@@ -23,9 +23,6 @@ import {
   stepsFor,
 } from "./lib/generator-session.js";
 
-// Framework identity used when no request user exists (local dev, AUTH_DISABLED).
-const FALLBACK_OWNER = "local@localhost";
-
 export default defineAction({
   description:
     "Create today's daily spark: a 2-bar seed session named 'Spark — <date>' chosen from liked taste (lo-fi by default), with a small date-seeded vary pass on hats and bass. Sends an in-app notification linking to the session. Idempotent per day: a second call returns the existing spark.",
@@ -34,7 +31,12 @@ export default defineAction({
     const now = new Date();
     const dateKey = sparkDateKey(now);
     const name = sparkSessionName(dateKey);
-    const owner = ctx?.userEmail ?? FALLBACK_OWNER;
+    const owner = ctx?.userEmail;
+    if (!owner) {
+      throw Object.assign(new Error("Authentication required to create a daily spark."), {
+        statusCode: 401,
+      });
+    }
 
     const existing = (await listSessions()).find((s) => s.name === name);
     let sessionId: string;
