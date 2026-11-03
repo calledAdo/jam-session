@@ -747,6 +747,14 @@
 .jam-band-roster span[data-role="keys"] i {
   background: var(--jam-leaf);
 }
+.jam-band-roster span[data-done="true"] {
+  border-color: rgba(124, 188, 170, 0.38);
+  background: #17231f;
+  color: #a0cfbd;
+}
+.jam-band-roster span[data-done="true"] svg {
+  color: #83bda8;
+}
 .jam-band-roster small {
   color: var(--jam-dim);
   font-size: 9px;

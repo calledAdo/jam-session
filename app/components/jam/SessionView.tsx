@@ -15,6 +15,7 @@ import {
   IconArrowBackUp,
   IconArrowLeft,
   IconArrowUpRight,
+  IconCheck,
   IconHistory,
   IconHelpCircle,
   IconX,
@@ -30,6 +31,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { getJamEngine } from "@/lib/jam/audio";
+import {
+  authorsForNewIdeas,
+  BANDMATE_AUTHORS,
+  type BandmateAuthor,
+} from "@/lib/jam/band-moment";
 import {
   activeStepRatio,
   applyPatchToTracks,
@@ -105,6 +111,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const tossM = useActionMutation("toss-idea");
   const undoM = useActionMutation("undo-last");
   const variationsM = useActionMutation("propose-variations");
+  const ensureBandAgents = useActionMutation("ensure-band-agents");
 
   const [playing, setPlaying] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -119,10 +126,13 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const [bandMoment, setBandMoment] = useState<
     "working" | "ideas" | "sent" | null
   >(null);
+  const [bandmateDone, setBandmateDone] = useState<ReadonlySet<BandmateAuthor>>(
+    new Set(),
+  );
   const dataRef = useRef(data);
   dataRef.current = data;
   const unstickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const ideasBeforeUnstick = useRef(0);
+  const ideasBeforeUnstick = useRef<ReadonlySet<string>>(EMPTY_SET);
   const unstickRunObserved = useRef(false);
   const coachProgressDirty = useRef(false);
 
@@ -587,37 +597,63 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   };
 
   const onUnstick = () => {
+    if (bandMoment === "working") return;
     completeCoachStep("unstick");
-    ideasBeforeUnstick.current = data?.ideas.length ?? 0;
+    ideasBeforeUnstick.current = new Set(data?.ideas.map(({ id }) => id) ?? []);
     unstickRunObserved.current = false;
+    setBandmateDone(new Set());
     setBandMoment("working");
     if (unstickTimer.current) clearTimeout(unstickTimer.current);
-    unstickTimer.current = setTimeout(() => {
-      if (unstickRunObserved.current) return;
-      setBandMoment((current) => (current === "working" ? "sent" : current));
-      unstickTimer.current = setTimeout(() => setBandMoment(null), 4500);
-    }, 12000);
-    try {
-      sendPrompt("Unstick me");
-    } catch (cause) {
+
+    const showSent = (cause?: unknown) => {
       if (unstickTimer.current) clearTimeout(unstickTimer.current);
+      if (cause) {
+        setBandMoment(null);
+        notify(errorMessage(cause));
+        return;
+      }
       setBandMoment("sent");
       unstickTimer.current = setTimeout(() => setBandMoment(null), 4500);
-      notify(errorMessage(cause));
-    }
+    };
+
+    ensureBandAgents.mutate(
+      {},
+      {
+        onSuccess: () => {
+          try {
+            sendPrompt("Unstick me");
+            unstickTimer.current = setTimeout(() => {
+              if (unstickRunObserved.current) return;
+              setBandMoment((current) =>
+                current === "working" ? "sent" : current,
+              );
+              unstickTimer.current = setTimeout(
+                () => setBandMoment(null),
+                4500,
+              );
+            }, 12000);
+          } catch (cause) {
+            showSent(cause);
+          }
+        },
+        onError: showSent,
+      },
+    );
   };
 
   useEffect(() => {
-    if (
-      bandMoment !== "working" ||
-      !data ||
-      data.ideas.length <= ideasBeforeUnstick.current
-    )
-      return;
+    if (!bandMoment || !data) return;
+    const arrived = authorsForNewIdeas(data.ideas, ideasBeforeUnstick.current);
+    const newlyDone = arrived.filter((author) => !bandmateDone.has(author));
+    if (newlyDone.length === 0) return;
+    const completed = new Set([...bandmateDone, ...newlyDone]);
+    setBandmateDone(completed);
+    if (!BANDMATE_AUTHORS.every((author) => completed.has(author))) return;
+
     if (unstickTimer.current) clearTimeout(unstickTimer.current);
-    setBandMoment("ideas");
+    if (bandMoment !== "ideas") setBandMoment("ideas");
     unstickTimer.current = setTimeout(() => setBandMoment(null), 5000);
-  }, [bandMoment, data?.ideas.length]);
+  }, [bandMoment, data?.ideas, bandmateDone]);
 
   useEffect(() => {
     if (bandMoment !== "working") return;
@@ -627,9 +663,18 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       return;
     }
     if (!unstickRunObserved.current) return;
+    const arrived = data
+      ? authorsForNewIdeas(data.ideas, ideasBeforeUnstick.current)
+      : [];
+    if (
+      BANDMATE_AUTHORS.every(
+        (author) => bandmateDone.has(author) || arrived.includes(author),
+      )
+    )
+      return;
     setBandMoment("sent");
-    unstickTimer.current = setTimeout(() => setBandMoment(null), 4500);
-  }, [agentGenerating, bandMoment]);
+    unstickTimer.current = setTimeout(() => setBandMoment(null), 9000);
+  }, [agentGenerating, bandMoment, bandmateDone, data?.ideas]);
 
   const coachStep =
     coachReady && !coachProgress.dismissed
@@ -900,14 +945,32 @@ export function SessionView({ sessionId }: { sessionId: string }) {
             </span>
           </div>
           <div className="jam-band-roster">
-            <span data-role="drummer">
+            <span
+              data-role="drummer"
+              data-done={bandmateDone.has("Drummer") || undefined}
+            >
               <i /> DRUMMER <small>pocket</small>
+              {bandmateDone.has("Drummer") ? (
+                <IconCheck size={12} aria-label="Drummer idea added" />
+              ) : null}
             </span>
-            <span data-role="bassist">
+            <span
+              data-role="bassist"
+              data-done={bandmateDone.has("Bassist") || undefined}
+            >
               <i /> BASSIST <small>counterline</small>
+              {bandmateDone.has("Bassist") ? (
+                <IconCheck size={12} aria-label="Bassist idea added" />
+              ) : null}
             </span>
-            <span data-role="keys">
+            <span
+              data-role="keys"
+              data-done={bandmateDone.has("Keys") || undefined}
+            >
               <i /> KEYS <small>harmony</small>
+              {bandmateDone.has("Keys") ? (
+                <IconCheck size={12} aria-label="Keys idea added" />
+              ) : null}
             </span>
           </div>
         </section>

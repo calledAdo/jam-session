@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { proposeIdeas } from "../server/sessions/store.js";
 import { ideaSchema } from "./lib/session-schemas.js";
+import { shouldLogMainThreadBandmateFallback } from "./lib/unstick-proposal-log.js";
 
 export default defineAction({
   description:
@@ -26,6 +27,20 @@ export default defineAction({
               ? { ...idea, author: "Bandmate" }
               : idea,
           );
+
+    if (
+      ctx?.caller === "tool" &&
+      (ctx.delegationDepth ?? 0) === 0 &&
+      shouldLogMainThreadBandmateFallback(
+        ctx.turnId ?? ctx.runId,
+        ideas.map((idea) => idea.author),
+      )
+    ) {
+      console.warn(
+        "[unstick] main-thread proposal contains multiple bandmate authors",
+      );
+    }
+
     return { ideas: await proposeIdeas({ ...args, ideas }) };
   },
 });

@@ -12,6 +12,7 @@ const INITIAL_TOOL_NAMES = [
   "hello",
   "provider-api-request",
   "ask-question",
+  "agent-teams",
 ];
 
 export default createAgentChatPlugin({

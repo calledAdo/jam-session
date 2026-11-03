@@ -52,6 +52,7 @@ const SEEDS = [
 
 export function JamHome() {
   const automationRequested = useRef(false);
+  const bandAgentsRequested = useRef(false);
   const navigate = useNavigate();
   const { data, error, isLoading, refetch } = useActionQuery(
     "list-sessions",
@@ -67,12 +68,24 @@ export function JamHome() {
       navigate(`/s/${result.session.id}`),
   });
   const ensureSparkAutomation = useActionMutation("ensure-spark-automation");
+  const ensureBandAgents = useActionMutation("ensure-band-agents");
 
   useEffect(() => {
     if (automationRequested.current) return;
     automationRequested.current = true;
     ensureSparkAutomation.mutate({}, { onError: () => {} });
   }, [ensureSparkAutomation]);
+
+  useEffect(() => {
+    if (bandAgentsRequested.current) return;
+    bandAgentsRequested.current = true;
+    ensureBandAgents.mutate(
+      {},
+      {
+        onError: () => console.error("Unable to initialize bandmate agents."),
+      },
+    );
+  }, [ensureBandAgents]);
 
   const sessions = data?.sessions ?? [];
   const spark = useMemo(
