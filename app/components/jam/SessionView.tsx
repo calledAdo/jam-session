@@ -1,4 +1,7 @@
-import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
+import {
+  useAgentChatGenerating,
+  useChatThreads,
+} from "@agent-native/core/client/agent-chat";
 import {
   deleteClientAppState,
   readClientAppState,
@@ -62,6 +65,7 @@ import { TransportBar } from "./TransportBar";
 import "./jam.css";
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
+const JAM_CHAT_TAB_KEY = "jam-session-agent-tab-v1";
 const COACH_KEY = "jam-first-run-v1";
 const COACH_STEPS = [
   { id: "beat", label: "Click a drum cell to add a beat." },
@@ -83,8 +87,36 @@ function isTextTarget(target: EventTarget | null): boolean {
   );
 }
 
+function jamChatTabStorageKey(sessionId: string): string {
+  return `${JAM_CHAT_TAB_KEY}:${sessionId}`;
+}
+
+function readJamChatTabId(sessionId: string): string | null {
+  try {
+    return window.localStorage.getItem(jamChatTabStorageKey(sessionId));
+  } catch {
+    return null;
+  }
+}
+
+function writeJamChatTabId(sessionId: string, tabId: string): void {
+  try {
+    window.localStorage.setItem(jamChatTabStorageKey(sessionId), tabId);
+  } catch {
+    // The current mounted session still owns its tab when storage is unavailable.
+  }
+}
+
 export function SessionView({ sessionId }: { sessionId: string }) {
   const [agentGenerating, sendAgentPrompt] = useAgentChatGenerating();
+  const { createThread } = useChatThreads(undefined, "jam-session", undefined, {
+    autoCreate: false,
+    restoreActiveThread: false,
+  });
+  const jamChatTab = useRef<{ sessionId: string; tabId: string | null }>({
+    sessionId,
+    tabId: null,
+  });
   const qc = useQueryClient();
   const queryKey = useMemo(
     () => ["action", "get-session", { id: sessionId }],
@@ -571,8 +603,21 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     }
   };
 
-  const sendPrompt = (message: string) => {
-    return sendAgentPrompt({
+  const sendPrompt = async (message: string) => {
+    if (jamChatTab.current.sessionId !== sessionId) {
+      jamChatTab.current = {
+        sessionId,
+        tabId: readJamChatTabId(sessionId),
+      };
+    }
+    const targetTabId =
+      jamChatTab.current.tabId ??
+      readJamChatTabId(sessionId) ??
+      (await createThread());
+    if (!targetTabId) throw new Error("Could not create a Jam chat thread.");
+    jamChatTab.current.tabId = targetTabId;
+    writeJamChatTabId(sessionId, targetTabId);
+    const tabId = sendAgentPrompt({
       message,
       context: [
         `Session id: ${sessionId}`,
@@ -587,12 +632,14 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       submit: true,
       openSidebar: true,
       chatTarget: "local",
+      targetTabId,
     });
+    return tabId;
   };
 
   const onAskBandmate = () => {
     if (!selection) return;
-    sendPrompt(`Give me ideas for ${describeSelection(selection)}`);
+    void sendPrompt(`Give me ideas for ${describeSelection(selection)}`);
   };
 
   const onUnstick = () => {
@@ -619,8 +666,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       {},
       {
         onSuccess: () => {
-          try {
-            sendPrompt("Unstick me");
+          void sendPrompt("Unstick me").then(() => {
             unstickTimer.current = setTimeout(() => {
               if (unstickRunObserved.current) return;
               setBandMoment((current) =>
@@ -631,9 +677,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
                 4500,
               );
             }, 12000);
-          } catch (cause) {
-            showSent(cause);
-          }
+          }).catch(showSent);
         },
         onError: showSent,
       },
@@ -1018,7 +1062,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               type="button"
               key={prompt.label}
               className="jam-prompt-chip"
-              onClick={() => sendPrompt(prompt.message)}
+              onClick={() => void sendPrompt(prompt.message)}
             >
               {prompt.label} <IconArrowUpRight size={13} />
             </button>
