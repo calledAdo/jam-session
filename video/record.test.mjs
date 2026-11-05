@@ -1,9 +1,21 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { auditionSnapshot, fitScaleForShot, mappedShotTime, rewindWav, spokenRationale, subtitleSegments } from "../../video/record.mjs";
+import { SHOTS, TOTAL_SECONDS, auditionSnapshot, fitScaleForShot, mappedShotTime, rewindWav, spokenRationale, subtitleSegments } from "../../video/record.mjs";
 
 const countWords = (text) => (text.match(/[\w’'-]+/g) || []).length;
+
+it("inserts beat 6b between approval and the knob on an uninterrupted 150-second timeline", () => {
+  expect(SHOTS.map((shot) => shot.number)).toEqual([1, 2, 3, 4, 5, 6, "6b", 7, 8, 9, 10]);
+  expect(TOTAL_SECONDS).toBe(150);
+  let end = 0;
+  for (const shot of SHOTS) {
+    expect(shot.start).toBe(end);
+    end += shot.duration;
+  }
+  expect(end).toBe(TOTAL_SECONDS);
+  expect(SHOTS.find((shot) => shot.number === "6b").compressWait).toBe(true);
+});
 
 describe("spoken bandmate ideas", () => {
   it("describes the actual changed track and location in at most sixteen words", () => {
@@ -115,11 +127,19 @@ with tempfile.TemporaryDirectory() as directory:
         m.plan_new_characters([{'voice_id': 'voice', 'text': 'x' * 3001}], cache)
     except RuntimeError:
         blocked = True
-    print(json.dumps({'first': first, 'cached': cached, 'blocked': blocked, 'key': key}))
+    print(json.dumps({'first': first, 'cached': cached, 'blocked': blocked, 'key': key,
+        'duration': m.FULL_LENGTH_SECONDS, 'narration': m.NARRATION}))
 `;
   const result = JSON.parse(execFileSync("python3", ["-B", "-c", script], { encoding: "utf8" }));
   expect(result.first).toBe(11);
   expect(result.cached).toBe(0);
   expect(result.blocked).toBe(true);
   expect(result.key).toMatch(/^[0-9a-f]{64}$/);
+  expect(result.duration).toBe(TOTAL_SECONDS);
+  expect(result.narration.find((line) => line[0] === "6b").slice(1, 3)).toEqual([82, 97]);
+  for (const [beat, start, end] of result.narration) {
+    const shot = SHOTS.find((shot) => shot.number === beat);
+    expect(start).toBeGreaterThanOrEqual(shot.start);
+    expect(end).toBeLessThanOrEqual(shot.start + shot.duration);
+  }
 });
