@@ -4,13 +4,20 @@ import {
 } from "@agent-native/core/client/hooks";
 import {
   IconArrowRight,
-  IconBolt,
   IconMusic,
-  IconPlayerPlayFilled,
+  IconPlus,
   IconSun,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
+
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import type { SessionData } from "@/lib/jam/grid";
 
 import { isSparkSessionName } from "../../../server/music/spark";
 
@@ -25,35 +32,118 @@ type SessionRow = {
   bars: number;
   createdAt?: string;
 };
-
 const SEEDS = [
   {
     seed: "lofi",
-    label: "Lo-fi",
-    blurb: "Dusty drums · minor harmony",
+    label: "Chill",
+    genre: "lo-fi",
+    blurb: "Soft drums and a little rainy-day feeling.",
     bpm: 82,
-    pattern: [0, 3, 6, 10, 14],
   },
   {
     seed: "house",
-    label: "House",
-    blurb: "Four to the floor · open hats",
+    label: "Dance",
+    genre: "house",
+    blurb: "A steady beat to get you moving.",
     bpm: 124,
-    pattern: [0, 4, 8, 12, 14],
   },
   {
     seed: "empty",
-    label: "Blank grid",
-    blurb: "Start with one hit",
+    label: "Empty page",
+    genre: "",
+    blurb: "Start with silence. Add your first sound.",
     bpm: 90,
-    pattern: [],
   },
 ] as const;
+function mood(scale: string) {
+  return scale === "major" ? "Happy" : "Sad";
+}
+
+function SketchCard({ session }: { session: SessionRow }) {
+  const ref = useRef<HTMLAnchorElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!ref.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "100px" },
+    );
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+  const { data } = useActionQuery(
+    "get-session",
+    { id: session.id },
+    { enabled: visible, staleTime: 60_000 },
+  ) as { data: SessionData | undefined };
+  const { data: edits } = useActionQuery(
+    "list-edits",
+    { sessionId: session.id },
+    { enabled: visible, staleTime: 60_000 },
+  ) as { data: { createdAt: string }[] | undefined };
+  const lastEdit = edits?.[0]?.createdAt;
+  const date = lastEdit ?? session.createdAt;
+  return (
+    <Link ref={ref} className="jam-sketch-card" to={`/s/${session.id}`}>
+      <div className="jam-sketch-card__heading">
+        <h3>{session.name}</h3>
+        <IconArrowRight size={18} />
+      </div>
+      <p>
+        {mood(session.scale)} · Speed{" "}
+        {session.bpm < 100 ? "slow" : session.bpm < 120 ? "steady" : "fast"}{" "}
+        <small>· {session.bpm}</small>
+      </p>
+      <div
+        className="jam-sketch-preview"
+        aria-hidden="true"
+        data-loaded={!!data}
+      >
+        {data ? (
+          data.tracks.map((track) => (
+            <div key={track.kind}>
+              {track.steps
+                .slice(0, track.kind === "keys" ? 1 : 16)
+                .map((value, i) => (
+                  <i
+                    key={i}
+                    data-on={
+                      typeof value === "string" ||
+                      (typeof value === "number" && value > 0) ||
+                      undefined
+                    }
+                  />
+                ))}
+            </div>
+          ))
+        ) : (
+          <span />
+        )}
+      </div>
+      {date && (
+        <time dateTime={date}>
+          {lastEdit ? "Edited" : "Created"}{" "}
+          {new Date(date).toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          })}
+        </time>
+      )}
+    </Link>
+  );
+}
 
 export function JamHome() {
   const automationRequested = useRef(false);
   const bandAgentsRequested = useRef(false);
   const navigate = useNavigate();
+  const [newOpen, setNewOpen] = useState(false);
+  const [limit, setLimit] = useState(12);
   const { data, error, isLoading, refetch } = useActionQuery(
     "list-sessions",
     {},
@@ -69,231 +159,165 @@ export function JamHome() {
   });
   const ensureSparkAutomation = useActionMutation("ensure-spark-automation");
   const ensureBandAgents = useActionMutation("ensure-band-agents");
-
   useEffect(() => {
     if (automationRequested.current) return;
     automationRequested.current = true;
     ensureSparkAutomation.mutate({}, { onError: () => {} });
   }, [ensureSparkAutomation]);
-
   useEffect(() => {
     if (bandAgentsRequested.current) return;
     bandAgentsRequested.current = true;
     ensureBandAgents.mutate(
       {},
-      {
-        onError: () => console.error("Unable to initialize bandmate agents."),
-      },
+      { onError: () => console.error("Unable to initialize bandmate agents.") },
     );
   }, [ensureBandAgents]);
-
   const sessions = data?.sessions ?? [];
   const spark = useMemo(
     () => sessions.find((session) => isSparkSessionName(session.name)),
     [sessions],
   );
-  const crate = useMemo(
+  const sketches = useMemo(
     () => sessions.filter((session) => session.id !== spark?.id),
     [sessions, spark],
   );
-  const createError =
-    create.error instanceof Error ? create.error.message : null;
-
-  const start = (seed: (typeof SEEDS)[number]) => {
-    create.mutate({
-      seed: seed.seed,
-      bpm: seed.bpm,
-      name: `${seed.label} jam`,
-    });
-  };
-
   return (
     <div className="jam-root jam-home">
       <div className="jam-home__inner">
         <header className="jam-home__header">
-          <div className="jam-wordmark" aria-label="Jam Session">
-            <span className="jam-wordmark__mark">J</span>
-            <span>JAM SESSION</span>
+          <div className="jam-wordmark">
+            <span className="jam-wordmark__mark">J</span>JAM SESSION
           </div>
-          <div className="jam-home__heading-row">
-            <div>
-              <h1>Loop crate</h1>
-              <p className="jam-home__subhead">
-                Pick up where the groove left off.
-              </p>
-            </div>
-            <span
-              className="jam-mono jam-home__count"
-              aria-label={`${sessions.length} saved loops`}
-            >
-              {String(sessions.length).padStart(2, "0")} LOOPS
-            </span>
-          </div>
+          <h1>Your sketches</h1>
+          <p className="jam-home__subhead">
+            A sketchbook for producers, with a band in the margins.
+          </p>
+          <button
+            type="button"
+            className="jam-primary jam-new-sketch"
+            onClick={() => setNewOpen(true)}
+          >
+            <IconPlus size={21} />
+            New sketch
+          </button>
         </header>
-
-        <section className="jam-spark" aria-label="Today's spark">
+        <section className="jam-spark" aria-label="Fresh idea for today">
           <div className="jam-spark__label">
-            <IconSun size={16} stroke={1.8} />
-            <span>TODAY'S SPARK</span>
+            <IconSun size={18} />
+            <span>Fresh idea for today</span>
           </div>
-          {isLoading ? (
-            <div className="jam-spark__empty" role="status">
-              <span className="jam-spark__main">
-                <strong>Finding today's spark</strong>
-                <span className="jam-spark__eyebrow">
-                  Checking the loop crate.
-                </span>
-              </span>
-              <IconSun size={22} stroke={1.5} aria-hidden="true" />
-            </div>
-          ) : error ? (
-            <div className="jam-spark__empty" role="status">
-              <span className="jam-spark__main">
-                <strong>Today's spark is unavailable</strong>
-                <span className="jam-spark__eyebrow">
-                  Your saved loops are still below.
-                </span>
-              </span>
-              <IconMusic size={22} stroke={1.5} aria-hidden="true" />
-            </div>
-          ) : spark ? (
+          {spark ? (
             <Link className="jam-spark__loop" to={`/s/${spark.id}`}>
               <div className="jam-spark__main">
-                <span className="jam-spark__eyebrow">A loop to start from</span>
                 <strong>{spark.name}</strong>
+                <span className="jam-spark__eyebrow">
+                  {mood(spark.scale)} · Speed {spark.bpm}
+                </span>
               </div>
-              <span className="jam-mono jam-spark__meta">
-                {spark.root} {spark.scale} <i /> {spark.bpm} BPM <i />{" "}
-                {spark.bars} bars
-              </span>
-              <span className="jam-spark__open">
-                Open spark <IconArrowRight size={17} />
-              </span>
+              <IconArrowRight size={21} />
             </Link>
           ) : (
             <div className="jam-spark__empty">
-              <span className="jam-spark__main">
-                <strong>No spark in the crate yet</strong>
-                <span className="jam-spark__eyebrow">
-                  Start a loop below and make it yours.
-                </span>
+              <span>
+                {isLoading
+                  ? "Finding today's spark…"
+                  : error
+                    ? "Today's spark is unavailable."
+                    : "Your next fresh start is on its way."}
               </span>
-              <IconMusic size={22} stroke={1.5} aria-hidden="true" />
+              <IconMusic size={22} />
             </div>
           )}
         </section>
-
-        <section
-          className="jam-home__section"
-          aria-labelledby="new-loop-heading"
-        >
+        <section className="jam-home__section">
           <div className="jam-section-heading">
-            <h2 id="new-loop-heading">New loop</h2>
-            <span className="jam-label">CHOOSE A STARTING POCKET</span>
-          </div>
-          <div className="jam-seeds">
-            {SEEDS.map((seed, seedIndex) => (
-              <button
-                key={seed.seed}
-                type="button"
-                className="jam-seed"
-                data-seed={seed.seed}
-                disabled={create.isPending}
-                onClick={() => start(seed)}
-              >
-                <span className="jam-seed__topline">
-                  <span className="jam-seed__index">0{seedIndex + 1}</span>
-                  <span className="jam-seed__icon">
-                    {seed.seed === "empty" ? (
-                      <IconMusic size={18} />
-                    ) : (
-                      <IconBolt size={18} />
-                    )}
-                  </span>
-                </span>
-                <span className="jam-seed__title">{seed.label}</span>
-                <span className="jam-seed__blurb">{seed.blurb}</span>
-                <span className="jam-seed__pattern" aria-hidden="true">
-                  {Array.from({ length: 16 }, (_, step) => (
-                    <i
-                      key={step}
-                      data-hit={
-                        (seed.pattern as readonly number[]).includes(step)
-                          ? "true"
-                          : undefined
-                      }
-                    />
-                  ))}
-                </span>
-                <span className="jam-seed__start">
-                  {create.isPending ? "Opening..." : `${seed.bpm} BPM`}
-                  <IconPlayerPlayFilled size={13} />
-                </span>
-              </button>
-            ))}
-          </div>
-          {createError ? (
-            <p className="jam-inline-error" role="alert">
-              {createError}
-            </p>
-          ) : null}
-        </section>
-
-        <section
-          className="jam-home__section jam-crate"
-          aria-labelledby="crate-heading"
-        >
-          <div className="jam-section-heading">
-            <h2 id="crate-heading">Your crate</h2>
-            <span className="jam-label">RECENTLY TOUCHED</span>
+            <h2>Pick up a sketch</h2>
+            <span>{sketches.length} saved</span>
           </div>
           {isLoading ? (
-            <div className="jam-crate__loading" aria-label="Loading loops">
+            <div className="jam-crate__loading" aria-label="Loading sketches">
               <span />
               <span />
               <span />
             </div>
           ) : error ? (
-            <div className="jam-state-row jam-state-row--error" role="alert">
-              <span>Could not load your loops.</span>
+            <div className="jam-state-row" role="alert">
+              Could not load your sketches.
               <button
-                className="jam-text-button"
                 type="button"
+                className="jam-btn"
                 onClick={() => void refetch()}
               >
-                Try again <IconArrowRight size={14} />
+                Try again
               </button>
             </div>
-          ) : crate.length ? (
-            <div className="jam-crate__list">
-              {crate.map((session, index) => (
-                <Link
-                  className="jam-crate-row"
-                  key={session.id}
-                  to={`/s/${session.id}`}
-                >
-                  <span className="jam-crate-row__index jam-mono">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <span className="jam-crate-row__name">{session.name}</span>
-                  <span className="jam-crate-row__meta jam-mono">
-                    {session.root} {session.scale} <i /> {session.bpm} BPM <i />{" "}
-                    {session.bars} bars
-                  </span>
-                  <IconArrowRight className="jam-crate-row__arrow" size={17} />
-                </Link>
+          ) : sketches.length ? (
+            <div className="jam-sketch-list">
+              {sketches.slice(0, limit).map((session) => (
+                <SketchCard key={session.id} session={session} />
               ))}
             </div>
           ) : (
-            <div className="jam-state-row">
-              <span>Your next loop starts with one of these pockets.</span>
-            </div>
+            <p className="jam-state-row">
+              An empty page is a good place to start.
+            </p>
+          )}
+          {sketches.length > limit && (
+            <button
+              type="button"
+              className="jam-btn jam-load-more"
+              onClick={() => setLimit((n) => n + 12)}
+            >
+              More sketches
+            </button>
           )}
         </section>
-
         <Link to="/chat" className="jam-home__chat-link">
-          Open bandmate chat <IconArrowRight size={15} />
+          Open band chat <IconArrowRight size={16} />
         </Link>
+        <Sheet open={newOpen} onOpenChange={setNewOpen}>
+          <SheetContent
+            side="bottom"
+            className="jam-root jam-bottom-sheet jam-new-sheet"
+          >
+            <SheetTitle>New sketch</SheetTitle>
+            <SheetDescription>
+              Choose a feeling. Make it yours.
+            </SheetDescription>
+            <div className="jam-seed-choices">
+              {SEEDS.map((seed) => (
+                <button
+                  key={seed.seed}
+                  type="button"
+                  className="jam-seed-choice"
+                  disabled={create.isPending}
+                  onClick={() =>
+                    create.mutate({
+                      seed: seed.seed,
+                      bpm: seed.bpm,
+                      name: `${seed.label} sketch`,
+                    })
+                  }
+                >
+                  <span>
+                    <strong>{seed.label}</strong>
+                    {seed.genre && <small> ({seed.genre})</small>}
+                    <p>{seed.blurb}</p>
+                  </span>
+                  <IconArrowRight size={21} />
+                </button>
+              ))}
+            </div>
+            {create.isPending && <p role="status">Opening your sketch…</p>}
+            {create.error && (
+              <p className="jam-inline-error" role="alert">
+                {create.error instanceof Error
+                  ? create.error.message
+                  : "Could not create your sketch. Try again."}
+              </p>
+            )}
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   );

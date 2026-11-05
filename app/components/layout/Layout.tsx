@@ -146,7 +146,13 @@ function LayoutShell({ children }: LayoutProps) {
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const contentFrame = (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-      {isChatRoute ? (
+      {location.pathname.startsWith("/s/") ? (
+        <div className="hidden md:block">
+          <Suspense fallback={null}>
+            <Header onOpenMobileSidebar={openMobileSidebar} />
+          </Suspense>
+        </div>
+      ) : isChatRoute ? (
         <MobileAppBar
           className="md:hidden"
           onOpenNavigation={openMobileSidebar}

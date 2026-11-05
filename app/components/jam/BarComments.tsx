@@ -1,7 +1,6 @@
 import { IconMessageCircle, IconX } from "@tabler/icons-react";
 import { useState } from "react";
 
-import { PopoverContent } from "@/components/ui/popover";
 import type { BarCommentData } from "@/lib/jam/grid";
 
 import "./jam.css";
@@ -44,12 +43,12 @@ export function BarCommentTrigger({
       title={
         comments.length
           ? `${comments.length} note${comments.length === 1 ? "" : "s"} on bar ${bar + 1}`
-          : `Comment on bar ${bar + 1}`
+          : `Note on bar ${bar + 1}`
       }
       aria-label={
         comments.length
           ? `Open ${comments.length} note${comments.length === 1 ? "" : "s"} on bar ${bar + 1}`
-          : `Comment on bar ${bar + 1}`
+          : `Note on bar ${bar + 1}`
       }
       onClick={(event) => {
         event.stopPropagation();
@@ -72,14 +71,12 @@ export function BarCommentTrigger({
 export function BarCommentPopover({
   bar,
   comments,
-  anchor,
   onClose,
   onSubmit,
   onSeeIdea,
 }: {
   bar: number;
   comments: BarCommentData[];
-  anchor: HTMLElement;
   onClose: () => void;
   onSubmit: (bar: number, text: string) => Promise<void>;
   onSeeIdea: (ideaId: string) => void;
@@ -107,16 +104,7 @@ export function BarCommentPopover({
   };
 
   return (
-    <PopoverContent
-      className="jam-root jam-bar-comments"
-      align="start"
-      sideOffset={6}
-      aria-label={`Notes on bar ${bar + 1}`}
-      onCloseAutoFocus={(event) => {
-        event.preventDefault();
-        anchor.focus({ preventScroll: true });
-      }}
-    >
+    <div className="jam-bar-comments" aria-label={`Notes on bar ${bar + 1}`}>
       <header className="jam-bar-comments__head">
         <span className="jam-label">
           Bar {String(bar + 1).padStart(2, "0")}
@@ -188,7 +176,7 @@ export function BarCommentPopover({
           className="jam-bar-comments__input"
           value={text}
           maxLength={MAX_COMMENT_LENGTH}
-          placeholder="What's wrong with this bar?"
+          placeholder="Tell the band about this bar…"
           aria-label={`Note on bar ${bar + 1}`}
           autoFocus
           onChange={(event) => setText(event.target.value)}
@@ -206,6 +194,6 @@ export function BarCommentPopover({
           {error}
         </p>
       ) : null}
-    </PopoverContent>
+    </div>
   );
 }

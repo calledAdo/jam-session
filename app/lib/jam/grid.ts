@@ -1,4 +1,5 @@
 /** Pure grid helpers shared by the Jam Session UI and its audio engine. */
+import { noteToMidi, romanToChord } from "../../../server/music/notes";
 
 export const TRACK_ORDER = ["kick", "snare", "hat", "bass", "keys"] as const;
 export type TrackKind = (typeof TRACK_ORDER)[number];
@@ -408,6 +409,74 @@ const NUMERALS: Record<string, string[]> = {
 /** Numerals offered in the keys picker for a scale. */
 export function numeralChoices(scale: string): string[] {
   return NUMERALS[scale] ?? NUMERALS.minor!;
+}
+
+/** Display the actual sounding chord while preserving numerals in saved data. */
+export function chordName(
+  root: string,
+  scale: string,
+  numeral: string,
+): string {
+  try {
+    const notes = romanToChord(root, scale, numeral);
+    const first = noteToMidi(notes[0]!);
+    const third = (noteToMidi(notes[1]!) - first + 12) % 12;
+    const fifth = (noteToMidi(notes[2]!) - first + 12) % 12;
+    const names = [
+      "C",
+      "D♭",
+      "D",
+      "E♭",
+      "E",
+      "F",
+      "G♭",
+      "G",
+      "A♭",
+      "A",
+      "B♭",
+      "B",
+    ];
+    const quality =
+      fifth === 6 ? "dim" : fifth === 8 ? "+" : third === 3 ? "m" : "";
+    const seventh =
+      notes.length > 3
+        ? (noteToMidi(notes[3]!) - first) % 12 === 11
+          ? "maj7"
+          : "7"
+        : "";
+    return `${names[((first % 12) + 12) % 12]}${quality}${seventh}`;
+  } catch {
+    return "Chord";
+  }
+}
+
+export function chordChoices(root: string, scale: string) {
+  return numeralChoices(scale).map((numeral) => {
+    const name = chordName(root, scale, numeral);
+    const group =
+      name.includes("dim") || name.includes("+")
+        ? "Tense"
+        : name.endsWith("m")
+          ? "Sad"
+          : "Bright";
+    return { numeral, name, group };
+  });
+}
+
+/** A phone shows one bar, a tablet two, and a desktop the whole sketch. */
+export function pageBars(
+  page: number,
+  bars: number,
+  perPage: number,
+): number[] {
+  if (bars <= 0) return [];
+  const count = Math.max(1, Math.min(bars, Math.floor(perPage)));
+  const current = Math.max(0, Math.min(bars - 1, Math.floor(page)));
+  const start = Math.floor(current / count) * count;
+  return Array.from(
+    { length: Math.min(count, bars - start) },
+    (_, i) => start + i,
+  );
 }
 
 // --- Layout math shared by the grid and playhead -----------------------------

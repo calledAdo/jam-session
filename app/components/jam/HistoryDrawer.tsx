@@ -2,13 +2,14 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
-import { useState } from "react";
+} from "@/components/ui/sheet";
 
 type HistoryEdit = {
   id: string;
@@ -19,10 +20,10 @@ type HistoryEdit = {
 
 const TRACK_LABELS: Record<string, string> = {
   kick: "kick",
-  snare: "snare",
-  hat: "hat",
+  snare: "clap",
+  hat: "hi-hat",
   bass: "bass",
-  keys: "keys",
+  keys: "chords",
 };
 
 function editLabel(edit: HistoryEdit): string {
@@ -90,7 +91,7 @@ export function HistoryDrawer({
     revertM.mutate(
       { sessionId, editId },
       {
-        onSuccess: () => setMessage("Session restored to this edit."),
+        onSuccess: () => setMessage("Sketch restored to this edit."),
         onError: (cause: unknown) =>
           setMessage(
             cause instanceof Error ? cause.message : "Could not restore edit.",

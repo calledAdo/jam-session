@@ -16,11 +16,11 @@ import {
 import "./jam.css";
 
 const TRACK_LABELS: Record<string, string> = {
-  kick: "KICK",
-  snare: "SNARE",
-  hat: "HAT",
-  bass: "BASS",
-  keys: "KEYS",
+  kick: "Kick",
+  snare: "Clap",
+  hat: "Hi-hat",
+  bass: "Bass",
+  keys: "Chords",
 };
 
 export function IdeaTray({
@@ -66,12 +66,11 @@ export function IdeaTray({
     <section className="jam-idea-tray" aria-labelledby="jam-ideas-heading">
       <div className="jam-idea-tray__head">
         <div className="jam-idea-tray__title">
-          <h2 id="jam-ideas-heading">Ideas</h2>
+          <h2 id="jam-ideas-heading">The band's ideas</h2>
           <span className="jam-idea-tray__count jam-mono">
             {ideas.length}/6
           </span>
         </div>
-        <span className="jam-label">AUDITION · KEEP · TOSS</span>
       </div>
 
       {ideas.length === 0 ? (
@@ -79,11 +78,11 @@ export function IdeaTray({
           <span className="jam-idea-tray__empty-mark" aria-hidden="true">
             —
           </span>
-          <span>The loop is yours for now.</span>
+          <span>Ask for a nudge. Your sketch stays yours.</span>
         </div>
       ) : (
         <div className="jam-idea-tray__list">
-          {orderedIdeas.map((idea, index) => {
+          {orderedIdeas.map((idea) => {
             const auditioning = auditionId === idea.id;
             const editing = editingId === idea.id;
             const highlighted = highlightId === idea.id;
@@ -117,16 +116,16 @@ export function IdeaTray({
                 data-idea-id={idea.id}
               >
                 <div className="jam-idea__topline">
-                  <span className="jam-idea__index jam-mono">
-                    {String(index + 1).padStart(2, "0")}
+                  <span className="jam-idea__avatar" aria-hidden="true">
+                    {idea.author.slice(0, 1) || "B"}
                   </span>
                   <span className="jam-author" data-author={authorTone}>
                     {idea.author || "Bandmate"}
                   </span>
                   {editing ? (
-                    <span className="jam-idea__state">EDITING</span>
+                    <span className="jam-idea__state">TWEAKING</span>
                   ) : auditioning ? (
-                    <span className="jam-idea__state">ON THE GRID</span>
+                    <span className="jam-idea__state">LISTENING</span>
                   ) : null}
                 </div>
                 <h3 className="jam-idea__label">{idea.label}</h3>
@@ -135,7 +134,7 @@ export function IdeaTray({
                 ) : null}
                 {editing ? (
                   <p className="jam-idea__editing">
-                    Editing — click cells to adjust
+                    Tap the amber squares to tweak
                   </p>
                 ) : null}
 
@@ -144,7 +143,7 @@ export function IdeaTray({
                   aria-label={`${changedCells} changed cells in the preview`}
                 >
                   <div className="jam-idea__diff-heading">
-                    <span>PATCH PREVIEW</span>
+                    <span>Before / after</span>
                     <span>
                       {changedCells} {changedCells === 1 ? "change" : "changes"}
                     </span>
@@ -162,34 +161,31 @@ export function IdeaTray({
                           B{row.bar + 1}
                         </span>
                         <span
-                          className="jam-diff-row__cells"
+                          className="jam-mini-comparison"
                           aria-hidden="true"
                         >
-                          {row.after.map((value, cellIndex) => {
-                            const previous = row.before[cellIndex];
-                            const changed = row.changed.includes(cellIndex);
-                            const wasOn =
-                              typeof previous === "number"
-                                ? previous > 0
-                                : typeof previous === "string";
-                            const isOn =
-                              typeof value === "number"
-                                ? value > 0
-                                : typeof value === "string";
-                            return (
-                              <i
-                                key={cellIndex}
-                                data-on={isOn ? "true" : undefined}
-                                data-added={
-                                  changed && isOn && !wasOn ? "true" : undefined
-                                }
-                                data-removed={
-                                  changed && !isOn && wasOn ? "true" : undefined
-                                }
-                                data-changed={changed ? "true" : undefined}
-                              />
-                            );
-                          })}
+                          {[row.before, row.after].map((values, phase) => (
+                            <span
+                              className="jam-diff-row__cells"
+                              key={phase}
+                              data-phase={phase === 0 ? "before" : "after"}
+                            >
+                              {values.map((value, i) => (
+                                <i
+                                  key={i}
+                                  data-on={
+                                    typeof value === "string" ||
+                                    (typeof value === "number" && value > 0) ||
+                                    undefined
+                                  }
+                                  data-changed={
+                                    (phase === 1 && row.changed.includes(i)) ||
+                                    undefined
+                                  }
+                                />
+                              ))}
+                            </span>
+                          ))}
                         </span>
                       </div>
                     ))
@@ -213,7 +209,7 @@ export function IdeaTray({
                         ) : (
                           <IconPlayerPlayFilled size={13} />
                         )}
-                        {playing ? "Stop" : "Audition"}
+                        {playing ? "Stop" : "Listen"}
                       </button>
                       <button
                         type="button"
@@ -221,7 +217,7 @@ export function IdeaTray({
                         disabled={changedCells === 0}
                         onClick={() => onKeepEdited(idea)}
                       >
-                        <IconCheck size={14} /> Keep edited
+                        <IconCheck size={14} /> Use tweaked
                       </button>
                       <button
                         type="button"
@@ -246,7 +242,7 @@ export function IdeaTray({
                         ) : (
                           <IconPlayerPlayFilled size={13} />
                         )}
-                        {auditioning ? "Stop" : "Audition"}
+                        {auditioning ? "Stop" : "Listen"}
                       </button>
                       <button
                         type="button"
@@ -254,7 +250,7 @@ export function IdeaTray({
                         disabled={editingId !== null}
                         onClick={() => onKeep(idea)}
                       >
-                        <IconCheck size={14} /> Keep
+                        <IconCheck size={14} /> Use it
                       </button>
                       <button
                         type="button"
@@ -262,17 +258,17 @@ export function IdeaTray({
                         disabled={editingId !== null}
                         onClick={() => onEdit(idea)}
                       >
-                        <IconPencil size={12} /> Edit
+                        <IconPencil size={12} /> Tweak
                       </button>
                       <button
                         type="button"
                         className="jam-idea__toss"
-                        title="Toss idea"
-                        aria-label={`Toss ${idea.label}`}
+                        title="Skip idea"
+                        aria-label={`Skip ${idea.label}`}
                         disabled={editingId !== null}
                         onClick={() => onToss(idea)}
                       >
-                        <IconX size={15} />
+                        <IconX size={15} /> Skip
                       </button>
                     </>
                   )}

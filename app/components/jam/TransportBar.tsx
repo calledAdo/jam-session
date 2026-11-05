@@ -1,18 +1,18 @@
 import {
-  IconBolt,
-  IconMinus,
+  IconMessageCircle,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
-  IconPlus,
+  IconAdjustments,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
 
-import { ControlsStrip } from "./controls/ControlsStrip";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 import "./jam.css";
-
-const ROOTS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-const SCALES = ["major", "minor", "dorian", "pentatonic minor"];
 
 export type TransportBarProps = {
   bpm: number;
@@ -24,154 +24,159 @@ export type TransportBarProps = {
   onChange: (
     patch: Partial<{ bpm: number; root: string; scale: string; swing: number }>,
   ) => void;
-  onUnstick: () => void;
-  notice: string | null;
-  sessionId?: string;
-  hatEnergy: number;
+  soundOpen: boolean;
+  onSoundOpen: (open: boolean) => void;
+  onAskBand: () => void;
+  ideaCount: number;
+  hasNewIdeas: boolean;
 };
 
-export function TransportBar(props: TransportBarProps) {
-  const [bpmDraft, setBpmDraft] = useState(String(props.bpm));
-  useEffect(() => setBpmDraft(String(props.bpm)), [props.bpm]);
-
-  const commitBpm = (raw: string) => {
-    const n = Math.round(Number(raw));
-    if (!Number.isFinite(n)) return setBpmDraft(String(props.bpm));
-    const clamped = Math.min(240, Math.max(40, n));
-    setBpmDraft(String(clamped));
-    if (clamped !== props.bpm) props.onChange({ bpm: clamped });
-  };
-
+export function SoundControls({
+  bpm,
+  root,
+  scale,
+  swing,
+  onChange,
+}: Pick<TransportBarProps, "bpm" | "root" | "scale" | "swing" | "onChange">) {
   return (
-    <div className="jam-transport-stack">
-      <div className="jam-transport" role="group" aria-label="Loop transport">
+    <div className="jam-sound-controls">
+      <label className="jam-sound-field">
+        Speed <small>· {bpm}</small>
+        <input
+          aria-label="Speed"
+          className="jam-range"
+          type="range"
+          min={40}
+          max={240}
+          value={bpm}
+          onChange={(e) => onChange({ bpm: Number(e.target.value) })}
+        />
+        <span className="jam-range-labels">
+          <span>Slower</span>
+          <span>Faster</span>
+        </span>
+      </label>
+      <fieldset className="jam-mood">
+        <legend>Mood</legend>
+        <div>
+          <button
+            type="button"
+            aria-pressed={scale !== "major"}
+            onClick={() => onChange({ scale: "minor" })}
+          >
+            Sad
+          </button>
+          <button
+            type="button"
+            aria-pressed={scale === "major"}
+            onClick={() => onChange({ scale: "major" })}
+          >
+            Happy
+          </button>
+        </div>
+      </fieldset>
+      <label className="jam-sound-field">
+        Bounce <small>· {Math.round(swing * 100)}%</small>
+        <input
+          aria-label="Bounce"
+          className="jam-range"
+          type="range"
+          min={0}
+          max={100}
+          value={Math.round(swing * 100)}
+          onChange={(e) => onChange({ swing: Number(e.target.value) / 100 })}
+        />
+      </label>
+      <details className="jam-sound-more">
+        <summary>More</summary>
+        <label>
+          Root note{" "}
+          <select
+            aria-label="Root note"
+            className="jam-input"
+            value={root}
+            onChange={(e) => onChange({ root: e.target.value })}
+          >
+            {[
+              "C",
+              "C#",
+              "D",
+              "D#",
+              "E",
+              "F",
+              "F#",
+              "G",
+              "G#",
+              "A",
+              "A#",
+              "B",
+            ].map((note) => (
+              <option key={note}>{note}</option>
+            ))}
+          </select>
+        </label>
+      </details>
+    </div>
+  );
+}
+
+export function TransportBar(props: TransportBarProps) {
+  return (
+    <>
+      <div className="jam-dock" role="group" aria-label="Sketch controls">
+        <button
+          type="button"
+          className="jam-dock__side"
+          onClick={() => props.onSoundOpen(true)}
+        >
+          <IconAdjustments size={21} />
+          Sound
+        </button>
         <button
           type="button"
           className="jam-play-button"
-          data-playing={props.playing ? "true" : "false"}
+          data-playing={props.playing}
           onClick={props.onTogglePlay}
-          title={props.playing ? "Stop loop (Space)" : "Play loop (Space)"}
-          aria-label={props.playing ? "Stop loop" : "Play loop"}
+          aria-label={props.playing ? "Stop" : "Play"}
         >
           {props.playing ? (
-            <IconPlayerStopFilled size={17} />
+            <IconPlayerStopFilled size={24} />
           ) : (
-            <IconPlayerPlayFilled size={17} />
+            <IconPlayerPlayFilled size={24} />
           )}
-          <span>{props.playing ? "STOP" : "PLAY"}</span>
-          <kbd>SPACE</kbd>
+          <span>{props.playing ? "Stop" : "Play"}</span>
         </button>
-
-        <div className="jam-transport__divider" aria-hidden="true" />
-
-        <div className="jam-transport-control jam-bpm-control">
-          <label className="jam-label" htmlFor="jam-bpm">
-            TEMPO
-          </label>
-          <div className="jam-bpm-control__body">
-            <button
-              className="jam-icon-button"
-              type="button"
-              title="Decrease tempo"
-              aria-label="Decrease tempo"
-              onClick={() => commitBpm(String(props.bpm - 1))}
-            >
-              <IconMinus size={14} />
-            </button>
-            <input
-              id="jam-bpm"
-              className="jam-input jam-mono jam-bpm-input"
-              inputMode="numeric"
-              value={bpmDraft}
-              onChange={(event) => setBpmDraft(event.target.value)}
-              onBlur={(event) => commitBpm(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter")
-                  (event.target as HTMLInputElement).blur();
-              }}
-              aria-label="Tempo in beats per minute"
-            />
-            <span className="jam-bpm-suffix">BPM</span>
-            <button
-              className="jam-icon-button"
-              type="button"
-              title="Increase tempo"
-              aria-label="Increase tempo"
-              onClick={() => commitBpm(String(props.bpm + 1))}
-            >
-              <IconPlus size={14} />
-            </button>
-          </div>
-        </div>
-
-        <div className="jam-transport-control jam-key-control">
-          <span className="jam-label">KEY</span>
-          <div className="jam-key-control__body">
-            <select
-              className="jam-input jam-key-select"
-              value={props.root}
-              onChange={(event) => props.onChange({ root: event.target.value })}
-              aria-label="Root note"
-            >
-              {ROOTS.map((root) => (
-                <option key={root} value={root}>
-                  {root}
-                </option>
-              ))}
-            </select>
-            <select
-              className="jam-input jam-key-select jam-key-select--scale"
-              value={props.scale}
-              onChange={(event) =>
-                props.onChange({ scale: event.target.value })
-              }
-              aria-label="Scale"
-            >
-              {SCALES.map((scale) => (
-                <option key={scale} value={scale}>
-                  {scale}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="jam-transport-control jam-swing-control">
-          <label className="jam-label" htmlFor="jam-swing">
-            SWING <strong>{Math.round(props.swing * 100)}%</strong>
-          </label>
-          <input
-            id="jam-swing"
-            className="jam-range"
-            type="range"
-            min={0}
-            max={100}
-            value={Math.round(props.swing * 100)}
-            onChange={(event) =>
-              props.onChange({ swing: Number(event.target.value) / 100 })
-            }
-            aria-label="Swing amount"
-          />
-        </div>
-
-        <div className="jam-transport__spacer" />
         <button
-          className="jam-unstick-button"
           type="button"
-          onClick={props.onUnstick}
+          className="jam-dock__side jam-dock__band"
+          onClick={props.onAskBand}
         >
-          <IconBolt size={16} />
-          <span>UNSTICK ME</span>
-        </button>
-        {props.notice ? (
-          <span className="jam-transport__notice" role="status">
-            {props.notice}
+          <span className="jam-dock__badge-wrap">
+            <IconMessageCircle size={21} />
+            {props.ideaCount > 0 && (
+              <b
+                className="jam-idea-badge"
+                data-new={props.hasNewIdeas || undefined}
+              >
+                {props.ideaCount}
+              </b>
+            )}
           </span>
-        ) : null}
+          Ask the band
+        </button>
       </div>
-      {props.sessionId ? (
-        <ControlsStrip sessionId={props.sessionId} energy={props.hatEnergy} />
-      ) : null}
-    </div>
+      <Sheet open={props.soundOpen} onOpenChange={props.onSoundOpen}>
+        <SheetContent
+          side="bottom"
+          className="jam-root jam-bottom-sheet jam-sound-sheet"
+        >
+          <SheetTitle>Sound</SheetTitle>
+          <SheetDescription className="sr-only">
+            Shape the feel of your sketch.
+          </SheetDescription>
+          <SoundControls {...props} />
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
