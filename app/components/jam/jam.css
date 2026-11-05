@@ -807,6 +807,7 @@
   border-radius: 20px 20px 0 0;
 }
 .jam-bottom-sheet > h2 {
+  color: var(--jam-text);
   font-size: 19px;
   font-weight: 700;
   padding-right: 32px;
@@ -1664,5 +1665,105 @@ body:has(.jam-session)
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Vibes and synthesized sound kits. */
+.jam-kit {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.jam-kit legend {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.jam-kit__chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.jam-kit__chips button {
+  min-height: 68px;
+  padding: 10px;
+  text-align: left;
+  border: 1px solid var(--jam-line);
+  border-radius: 8px;
+  background: var(--jam-panel-2);
+  color: var(--jam-text);
+}
+.jam-kit__chips button[aria-pressed="true"] {
+  border-color: var(--jam-cyan);
+  background: #173034;
+}
+.jam-kit__chips strong {
+  display: block;
+  font-size: 13px;
+}
+.jam-kit__chips span {
+  display: block;
+  color: var(--jam-dim);
+  font-size: 11px;
+  margin-top: 3px;
+}
+.jam-kit__chips button:focus-visible,
+.jam-describe input:focus-visible {
+  outline: 2px solid var(--jam-cyan);
+  outline-offset: 2px;
+}
+.jam-describe {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+.jam-describe label {
+  font-size: 14px;
+  font-weight: 600;
+}
+.jam-describe .jam-btn {
+  justify-self: end;
+}
+@media (max-width: 599px) {
+  .jam-new-sheet .jam-seed-choices {
+    gap: 6px;
+    margin-top: 16px;
+  }
+  .jam-new-sheet .jam-seed-choice {
+    padding: 10px 12px;
+    min-height: 64px;
+  }
+}
+@media (min-width: 1200px) {
+  .jam-inline-sound .jam-kit {
+    flex-shrink: 0;
+  }
+  .jam-inline-sound .jam-kit legend {
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+  .jam-inline-sound .jam-kit__chips {
+    grid-template-columns: repeat(4, auto);
+    gap: 4px;
+  }
+  .jam-inline-sound .jam-kit__chips button {
+    min-height: 44px;
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .jam-inline-sound .jam-kit__chips strong {
+    font-size: 11px;
+  }
+  .jam-inline-sound .jam-kit__chips span {
+    display: none;
+  }
+  .jam-inline-sound .jam-sound-controls {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .jam-session-head {
+    height: auto;
+    padding-block: 12px;
   }
 }

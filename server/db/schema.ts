@@ -8,7 +8,7 @@ import {
   text,
 } from "@agent-native/core/db/schema";
 
-import { IDEA_STATUSES, TRACK_KINDS } from "../sessions/types.js";
+import { IDEA_STATUSES, SESSION_KITS, TRACK_KINDS } from "../sessions/types.js";
 
 export const sessions = table(
   "jam_sessions",
@@ -19,6 +19,7 @@ export const sessions = table(
     root: text("root").notNull().default("C"),
     scale: text("scale").notNull().default("minor"),
     swing: real("swing").notNull().default(0),
+    kit: text("kit", { enum: SESSION_KITS }).notNull().default("dusty"),
     bars: integer("bars").notNull().default(8),
     createdAt: text("created_at").notNull().default(now()),
   },

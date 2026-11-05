@@ -1,3 +1,4 @@
+import { sendToAgentChatAndConfirm } from "@agent-native/core/client/agent-chat";
 import {
   useActionMutation,
   useActionQuery,
@@ -35,24 +36,24 @@ type SessionRow = {
 const SEEDS = [
   {
     seed: "lofi",
-    label: "Chill",
-    genre: "lo-fi",
-    blurb: "Soft drums and a little rainy-day feeling.",
-    bpm: 82,
+    label: "Lo-fi",
+    blurb: "Chill chords and soft, dusty drums.",
   },
   {
+    seed: "boombap",
+    label: "Hip-hop",
+    blurb: "Boom-bap drums with a head-nod bounce.",
+  },
+  { seed: "trap", label: "Trap", blurb: "Deep 808s and rolling hats." },
+  {
     seed: "house",
-    label: "Dance",
-    genre: "house",
-    blurb: "A steady beat to get you moving.",
-    bpm: 124,
+    label: "House",
+    blurb: "Four on the floor to get you moving.",
   },
   {
     seed: "empty",
     label: "Empty page",
-    genre: "",
     blurb: "Start with silence. Add your first sound.",
-    bpm: 90,
   },
 ] as const;
 function mood(scale: string) {
@@ -143,6 +144,37 @@ export function JamHome() {
   const bandAgentsRequested = useRef(false);
   const navigate = useNavigate();
   const [newOpen, setNewOpen] = useState(false);
+  const [description, setDescription] = useState("");
+  const [sending, setSending] = useState(false);
+  const [describeError, setDescribeError] = useState("");
+  const describeToStart = async () => {
+    if (!description.trim() || sending) return;
+    setSending(true);
+    setDescribeError("");
+    setNewOpen(false);
+    try {
+      const delivery = await sendToAgentChatAndConfirm({
+        message: description.trim(),
+        context:
+          "Start a NEW Jam Session sketch from this description. Pick the closest vibe (lofi, boombap, trap, house, empty) and kit (dusty, boombap, 808, clean). Call create-session with seed and kit; keep the vibe's default transport unless the user specifies otherwise. Read get-taste, then use read-only generators and propose-ideas for three distinct, non-no-op ideas authored by the right bandmates. Do not apply ideas. Call navigate with path /s/<created session id> to open the new session. Follow the Jam starter workflow.",
+        submit: true,
+        openSidebar: true,
+        chatTarget: "local",
+      });
+      if (!delivery.delivered)
+        throw new Error("Open band chat to connect AI, then try again.");
+      setDescription("");
+    } catch (cause) {
+      setDescribeError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not reach the band. Try again.",
+      );
+      setNewOpen(true);
+    } finally {
+      setSending(false);
+    }
+  };
   const [limit, setLimit] = useState(12);
   const { data, error, isLoading, refetch } = useActionQuery(
     "list-sessions",
@@ -290,24 +322,53 @@ export function JamHome() {
                   key={seed.seed}
                   type="button"
                   className="jam-seed-choice"
-                  disabled={create.isPending}
+                  disabled={create.isPending || sending}
                   onClick={() =>
                     create.mutate({
                       seed: seed.seed,
-                      bpm: seed.bpm,
                       name: `${seed.label} sketch`,
                     })
                   }
                 >
                   <span>
                     <strong>{seed.label}</strong>
-                    {seed.genre && <small> ({seed.genre})</small>}
                     <p>{seed.blurb}</p>
                   </span>
                   <IconArrowRight size={21} />
                 </button>
               ))}
             </div>
+            <form
+              className="jam-describe"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void describeToStart();
+              }}
+            >
+              <label htmlFor="sketch-description">Or describe it…</label>
+              <input
+                id="sketch-description"
+                className="jam-input"
+                placeholder="rainy night boom-bap"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                maxLength={1000}
+                disabled={sending}
+              />
+              <button
+                className="jam-btn"
+                type="submit"
+                disabled={sending || create.isPending || !description.trim()}
+              >
+                {sending ? "Asking the band…" : "Ask the band"}{" "}
+                <IconArrowRight size={17} />
+              </button>
+              {describeError && (
+                <p className="jam-inline-error" role="alert">
+                  {describeError}
+                </p>
+              )}
+            </form>
             {create.isPending && <p role="status">Opening your sketch…</p>}
             {create.error && (
               <p className="jam-inline-error" role="alert">

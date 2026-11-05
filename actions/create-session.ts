@@ -5,6 +5,8 @@ import { z } from "zod";
 import { createSession } from "../server/sessions/store.js";
 import {
   barsSchema,
+  kitSchema,
+  swingSchema,
   bpmSchema,
   rootSchema,
   scaleSchema,
@@ -13,7 +15,7 @@ import {
 
 export default defineAction({
   description:
-    "Create a new looping jam session with five empty tracks (kick, snare, hat, bass, keys) and return the full session. Use seed 'empty' for a blank grid; lofi and house select the starting style. Defaults: 90 BPM, C minor, 8 bars.",
+    "Create a jam sketch with five tracks. Vibes: lofi, boombap, trap, house, empty. The vibe supplies BPM, key, swing, and kit unless explicitly overridden. Default: lofi, 8 bars.",
   schema: z.object({
     name: z.string().max(80).optional().describe("Session name."),
     bpm: bpmSchema.optional(),
@@ -21,6 +23,8 @@ export default defineAction({
     scale: scaleSchema.optional(),
     bars: barsSchema.optional(),
     seed: seedSchema,
+    kit: kitSchema.optional(),
+    swing: swingSchema.optional(),
   }),
   run: async (args) => {
     return createSession(args);

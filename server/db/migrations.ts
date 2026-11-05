@@ -77,6 +77,10 @@ CREATE INDEX IF NOT EXISTS idx_bar_comments_session_bar
   ON bar_comments (session_id, bar, created_at);
 `;
 
+export const KIT_SCHEMA_SQL = `
+ALTER TABLE jam_sessions ADD COLUMN IF NOT EXISTS kit TEXT NOT NULL DEFAULT 'dusty';
+`;
+
 export const sessionMigrations = [
   {
     version: 1,
@@ -96,6 +100,7 @@ export const sessionMigrations = [
     name: "bar-comments-and-edited-ideas",
     sql: EDIT_COMMENTS_SCHEMA_SQL,
   },
+  { version: 4, name: "session-sound-kit", sql: KIT_SCHEMA_SQL },
 ];
 
 export const runSessionMigrations = runMigrations(sessionMigrations, {

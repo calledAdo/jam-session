@@ -26,6 +26,7 @@ export type SessionData = {
     root: string;
     scale: string;
     swing: number;
+    kit: import("../../../server/sessions/types").SessionKit;
     bars: number;
   };
   tracks: TrackData[];

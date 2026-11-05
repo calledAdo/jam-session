@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EDIT_COMMENTS_SCHEMA_SQL,
   INITIAL_SCHEMA_SQL,
+  KIT_SCHEMA_SQL,
 } from "../server/db/migrations.js";
 import * as schema from "../server/db/schema.js";
 import {
@@ -30,6 +31,7 @@ beforeEach(async () => {
   client = new PGlite();
   await client.exec(INITIAL_SCHEMA_SQL);
   await client.exec(EDIT_COMMENTS_SCHEMA_SQL);
+  await client.exec(KIT_SCHEMA_SQL);
   testDb = drizzle(client, { schema });
 });
 

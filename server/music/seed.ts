@@ -4,9 +4,22 @@
 
 import { STEPS_PER_BAR, type Pattern } from "./types";
 
-export type SeedStyle = "lofi" | "house" | "empty";
+export const SEED_STYLES = [
+  "lofi",
+  "boombap",
+  "trap",
+  "house",
+  "empty",
+] as const;
+export type SeedStyle = (typeof SEED_STYLES)[number];
 
-export const SEED_STYLES: readonly SeedStyle[] = ["lofi", "house", "empty"];
+export const SEED_DEFAULTS = {
+  lofi: { bpm: 82, root: "C", scale: "minor", swing: 0.25, kit: "dusty" },
+  boombap: { bpm: 90, root: "D", scale: "minor", swing: 0.3, kit: "boombap" },
+  trap: { bpm: 140, root: "F", scale: "minor", swing: 0, kit: "808" },
+  house: { bpm: 124, root: "A", scale: "minor", swing: 0, kit: "clean" },
+  empty: { bpm: 90, root: "C", scale: "minor", swing: 0, kit: "clean" },
+} as const;
 
 interface Hit {
   step: number;
@@ -239,6 +252,98 @@ const HOUSE_BARS: SeedBar[] = [
   },
 ];
 
+// Two head-nod cells: kick-led bass and an i7–iv7 conversation.
+const BOOMBAP_BARS: SeedBar[] = [
+  {
+    kick: [
+      { step: 0, velocity: 3 },
+      { step: 6, velocity: 3 },
+      { step: 10, velocity: 2 },
+    ],
+    snare: [
+      { step: 4, velocity: 3 },
+      { step: 11, velocity: 1 },
+      { step: 12, velocity: 3 },
+    ],
+    hat: Array.from({ length: 8 }, (_, i) => ({
+      step: i * 2,
+      velocity: i % 2 ? 1 : 2,
+    })),
+    bass: [
+      [0, 1],
+      [6, 1],
+      [10, 5],
+    ],
+    chord: "i7",
+  },
+  {
+    kick: [
+      { step: 0, velocity: 3 },
+      { step: 7, velocity: 2 },
+      { step: 14, velocity: 3 },
+    ],
+    snare: [
+      { step: 4, velocity: 3 },
+      { step: 12, velocity: 3 },
+      { step: 15, velocity: 1 },
+    ],
+    hat: [
+      { step: 0, velocity: 2 },
+      { step: 2, velocity: 1 },
+      { step: 4, velocity: 2 },
+      { step: 6, velocity: 1 },
+      { step: 8, velocity: 3 },
+      { step: 10, velocity: 1 },
+      { step: 12, velocity: 2 },
+      { step: 15, velocity: 1 },
+    ],
+    bass: [
+      [0, 4],
+      [7, 4],
+      [14, 1],
+    ],
+    chord: "iv7",
+  },
+];
+
+// Half-time backbeat; accents suggest rolls without leaving the 16th grid.
+const TRAP_BARS: SeedBar[] = [
+  {
+    kick: [
+      { step: 0, velocity: 3 },
+      { step: 7, velocity: 2 },
+    ],
+    snare: [{ step: 8, velocity: 3 }],
+    hat: Array.from({ length: 16 }, (_, i) => ({
+      step: i,
+      velocity: i >= 12 ? [3, 1, 2, 1][i % 4]! : i % 2 ? 1 : 2,
+    })),
+    bass: [
+      [0, 1],
+      [7, 1],
+    ],
+    chord: "i",
+  },
+  {
+    kick: [
+      { step: 0, velocity: 3 },
+      { step: 6, velocity: 2 },
+      { step: 14, velocity: 3 },
+    ],
+    snare: [{ step: 8, velocity: 3 }],
+    hat: Array.from({ length: 16 }, (_, i) => ({
+      step: i,
+      velocity: i < 4 || i >= 14 ? [3, 1, 3, 1][i % 4]! : i % 2 ? 1 : 2,
+    })),
+    bass: [
+      [0, 6],
+      [6, 6],
+      [14, 5],
+    ],
+    chord: "VI",
+  },
+];
+
 function normalizeSeedBars(bars: number): number {
   if (!Number.isFinite(bars)) return 4;
   return Math.max(1, Math.min(32, Math.trunc(bars)));
@@ -252,8 +357,13 @@ function normalizeSeedBars(bars: number): number {
  */
 export function seedSession(style: SeedStyle, bars: number): Pattern {
   const barCount = normalizeSeedBars(bars);
-  const source =
-    style === "lofi" ? LOFI_BARS : style === "house" ? HOUSE_BARS : null;
+  const source = {
+    lofi: LOFI_BARS,
+    boombap: BOOMBAP_BARS,
+    trap: TRAP_BARS,
+    house: HOUSE_BARS,
+    empty: null,
+  }[style];
   const steps = barCount * STEPS_PER_BAR;
 
   const pattern: Pattern = {

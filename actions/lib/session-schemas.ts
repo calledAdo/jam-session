@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  SESSION_KITS,
   SESSION_SCALES,
   SESSION_SEEDS,
   TRACK_KINDS,
@@ -11,11 +12,7 @@ export const trackKindSchema = z
   .enum(TRACK_KINDS)
   .describe("One of the five grid rows: kick, snare, hat, bass, or keys.");
 
-export const stepValueSchema = z.union([
-  z.number(),
-  z.string(),
-  z.null(),
-]);
+export const stepValueSchema = z.union([z.number(), z.string(), z.null()]);
 
 export const stepsSchema = z.preprocess(
   parseJsonArg,
@@ -77,6 +74,12 @@ export const scaleSchema = z
   .enum(SESSION_SCALES)
   .describe("Scale used by the session.");
 
+export const kitSchema = z
+  .enum(SESSION_KITS)
+  .describe(
+    "Sound kit: dusty, boombap, 808, or clean. Changes voices, never the pattern.",
+  );
+
 export const swingSchema = z.coerce
   .number()
   .min(0)
@@ -118,4 +121,6 @@ export const authorSchema = z
 export const seedSchema = z
   .enum(SESSION_SEEDS)
   .default("lofi")
-  .describe("Starting style: lofi, house, or empty.");
+  .describe(
+    "Starting vibe: lofi, boombap, trap, house, or empty. Each sets matching transport and kit defaults.",
+  );

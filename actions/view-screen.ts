@@ -36,6 +36,16 @@ export default defineAction({
     if (sessionId) {
       try {
         const detail = await getSession(sessionId);
+        screen.transport = {
+          ...(transport as Record<string, unknown> | null),
+          sessionId,
+          bpm: detail.session.bpm,
+          root: detail.session.root,
+          scale: detail.session.scale,
+          swing: detail.session.swing,
+          bars: detail.session.bars,
+          kit: detail.session.kit,
+        };
         screen.session = {
           id: detail.session.id,
           name: detail.session.name,

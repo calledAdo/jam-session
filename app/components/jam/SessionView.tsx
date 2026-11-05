@@ -337,6 +337,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     engine.setState({
       bpm: data.session.bpm,
       swing: data.session.swing,
+      kit: data.session.kit,
       root: data.session.root,
       scale: data.session.scale,
       bars: data.session.bars,
@@ -621,6 +622,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       root: string;
       scale: string;
       swing: number;
+      kit: SessionData["session"]["kit"];
     }>,
   ) => {
     optimistic((d) => ({ ...d, session: { ...d.session, ...change } }));
@@ -982,6 +984,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         root: session.root,
         scale: session.scale,
         swing: session.swing,
+        kit: session.kit,
         bars: session.bars,
         playing,
       },
@@ -1231,6 +1234,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
             root={session.root}
             scale={session.scale}
             swing={session.swing}
+            kit={session.kit}
             onChange={onTransport}
           />
         </div>
@@ -1370,6 +1374,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         root={session.root}
         scale={session.scale}
         swing={session.swing}
+        kit={session.kit}
         playing={playing}
         onTogglePlay={() => void togglePlay()}
         onChange={onTransport}
