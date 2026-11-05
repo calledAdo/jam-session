@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core/action";
-import { readAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  readAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import { getSession } from "../server/sessions/store.js";
@@ -11,18 +14,21 @@ export default defineAction({
   http: false,
   readOnly: true,
   run: async () => {
-    const [navigation, selection, transport, audition] = await Promise.all([
-      readAppState("navigation"),
-      readAppState("selection"),
-      readAppState("transport"),
-      readAppState("audition"),
-    ]);
+    const [navigation, selection, transport, audition, editing] =
+      await Promise.all([
+        readAppState("navigation"),
+        readAppState("selection"),
+        readAppState("transport"),
+        readAppState("audition"),
+        readAppStateForCurrentTab("editing-idea"),
+      ]);
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (selection) screen.selection = selection;
     if (transport) screen.transport = transport;
     if (audition) screen.audition = audition;
+    if (editing) screen.editing = editing;
 
     const nav = navigation as { sessionId?: string } | null;
     const sessionId =
@@ -35,6 +41,9 @@ export default defineAction({
           name: detail.session.name,
           bars: detail.session.bars,
           pendingIdeas: detail.ideas.length,
+          openComments: detail.comments
+            .filter((comment) => comment.status === "open")
+            .map(({ id, bar, text }) => ({ id, bar, text })),
         };
       } catch {
         screen.session = { id: sessionId, error: "not found" };

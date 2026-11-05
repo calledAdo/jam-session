@@ -60,6 +60,23 @@ CREATE INDEX IF NOT EXISTS idx_edits_session_created_at
   ON edits (session_id, created_at);
 `;
 
+export const EDIT_COMMENTS_SCHEMA_SQL = `
+ALTER TABLE ideas ADD COLUMN IF NOT EXISTS edited BOOLEAN NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS bar_comments (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  bar INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  reply TEXT,
+  reply_author TEXT,
+  idea_id TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_bar_comments_session_bar
+  ON bar_comments (session_id, bar, created_at);
+`;
+
 export const sessionMigrations = [
   {
     version: 1,
@@ -72,6 +89,12 @@ export const sessionMigrations = [
     version: 2,
     name: "jam-sessions-table",
     sql: JAM_SESSIONS_TABLE_SQL,
+  },
+  {
+    // F06: per-bar notes plus the "kept after editing" marker on idea cards.
+    version: 3,
+    name: "bar-comments-and-edited-ideas",
+    sql: EDIT_COMMENTS_SCHEMA_SQL,
   },
 ];
 

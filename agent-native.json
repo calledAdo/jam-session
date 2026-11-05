@@ -10,7 +10,8 @@
       "tracks": "Grid tracks belong to a session row and inherit its scope; no independent tenant owner — reviewed 2026-11-03.",
       "ideas": "Ideas belong to a session row and inherit its scope; no independent tenant owner — reviewed 2026-11-03.",
       "taste": "Taste signals are appended for the local session's learning loop, not per-user profile data — reviewed 2026-11-03.",
-      "edits": "Undo journal is scoped by session_id and written only by session actions; no independent tenant owner — reviewed 2026-11-03."
+      "edits": "Undo journal is scoped by session_id and written only by session actions; no independent tenant owner — reviewed 2026-11-03.",
+      "bar_comments": "Bar notes belong to a session row and inherit its scope; replies are written only by the session actions — reviewed 2026-11-05."
     }
   }
 }

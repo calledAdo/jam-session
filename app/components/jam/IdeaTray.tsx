@@ -1,5 +1,6 @@
 import {
   IconCheck,
+  IconPencil,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
   IconX,
@@ -8,6 +9,7 @@ import {
 import {
   patchPreviewRows,
   type IdeaData,
+  type PatchEntry,
   type TrackData,
 } from "@/lib/jam/grid";
 
@@ -25,16 +27,32 @@ export function IdeaTray({
   ideas,
   tracks,
   auditionId,
+  editingId,
+  draft,
+  highlightId,
+  playing,
   onAudition,
   onKeep,
   onToss,
+  onEdit,
+  onCancelEdit,
+  onKeepEdited,
+  onTogglePlay,
 }: {
   ideas: IdeaData[];
   tracks: TrackData[];
   auditionId: string | null;
+  editingId: string | null;
+  draft: PatchEntry[] | null;
+  highlightId: string | null;
+  playing: boolean;
   onAudition: (id: string | null) => void;
   onKeep: (idea: IdeaData) => void;
   onToss: (idea: IdeaData) => void;
+  onEdit: (idea: IdeaData) => void;
+  onCancelEdit: () => void;
+  onKeepEdited: (idea: IdeaData) => void;
+  onTogglePlay: () => void;
 }) {
   const orderedIdeas = [...ideas].sort((a, b) =>
     String(
@@ -67,6 +85,8 @@ export function IdeaTray({
         <div className="jam-idea-tray__list">
           {orderedIdeas.map((idea, index) => {
             const auditioning = auditionId === idea.id;
+            const editing = editingId === idea.id;
+            const highlighted = highlightId === idea.id;
             const author = idea.author.trim().toLowerCase();
             const authorTone = ["you", "user"].includes(author)
               ? "you"
@@ -77,7 +97,10 @@ export function IdeaTray({
                   : author === "keys"
                     ? "keys"
                     : "bandmate";
-            const previewRows = patchPreviewRows(tracks, idea.patch);
+            const previewRows = patchPreviewRows(
+              tracks,
+              editing && draft ? draft : idea.patch,
+            );
             const changedCells = previewRows.reduce(
               (total, row) => total + row.changed.length,
               0,
@@ -89,6 +112,9 @@ export function IdeaTray({
                 className="jam-idea"
                 data-author={authorTone}
                 data-auditioning={auditioning ? "true" : undefined}
+                data-editing={editing ? "true" : undefined}
+                data-highlighted={highlighted ? "true" : undefined}
+                data-idea-id={idea.id}
               >
                 <div className="jam-idea__topline">
                   <span className="jam-idea__index jam-mono">
@@ -97,13 +123,20 @@ export function IdeaTray({
                   <span className="jam-author" data-author={authorTone}>
                     {idea.author || "Bandmate"}
                   </span>
-                  {auditioning ? (
+                  {editing ? (
+                    <span className="jam-idea__state">EDITING</span>
+                  ) : auditioning ? (
                     <span className="jam-idea__state">ON THE GRID</span>
                   ) : null}
                 </div>
                 <h3 className="jam-idea__label">{idea.label}</h3>
                 {idea.rationale ? (
                   <p className="jam-idea__rationale">{idea.rationale}</p>
+                ) : null}
+                {editing ? (
+                  <p className="jam-idea__editing">
+                    Editing — click cells to adjust
+                  </p>
                 ) : null}
 
                 <div
@@ -166,36 +199,83 @@ export function IdeaTray({
                 </div>
 
                 <div className="jam-idea__actions">
-                  <button
-                    type="button"
-                    className="jam-idea__audition"
-                    data-active={auditioning ? "true" : undefined}
-                    aria-pressed={auditioning}
-                    onClick={() => onAudition(auditioning ? null : idea.id)}
-                  >
-                    {auditioning ? (
-                      <IconPlayerStopFilled size={13} />
-                    ) : (
-                      <IconPlayerPlayFilled size={13} />
-                    )}
-                    {auditioning ? "Stop" : "Audition"}
-                  </button>
-                  <button
-                    type="button"
-                    className="jam-idea__keep"
-                    onClick={() => onKeep(idea)}
-                  >
-                    <IconCheck size={14} /> Keep
-                  </button>
-                  <button
-                    type="button"
-                    className="jam-idea__toss"
-                    title="Toss idea"
-                    aria-label={`Toss ${idea.label}`}
-                    onClick={() => onToss(idea)}
-                  >
-                    <IconX size={15} />
-                  </button>
+                  {editing ? (
+                    <>
+                      <button
+                        type="button"
+                        className="jam-idea__audition"
+                        data-active={playing ? "true" : undefined}
+                        aria-pressed={playing}
+                        onClick={onTogglePlay}
+                      >
+                        {playing ? (
+                          <IconPlayerStopFilled size={13} />
+                        ) : (
+                          <IconPlayerPlayFilled size={13} />
+                        )}
+                        {playing ? "Stop" : "Audition"}
+                      </button>
+                      <button
+                        type="button"
+                        className="jam-idea__keep"
+                        disabled={changedCells === 0}
+                        onClick={() => onKeepEdited(idea)}
+                      >
+                        <IconCheck size={14} /> Keep edited
+                      </button>
+                      <button
+                        type="button"
+                        className="jam-idea__cancel"
+                        onClick={onCancelEdit}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="jam-idea__audition"
+                        data-active={auditioning ? "true" : undefined}
+                        aria-pressed={auditioning}
+                        disabled={editingId !== null}
+                        onClick={() => onAudition(auditioning ? null : idea.id)}
+                      >
+                        {auditioning ? (
+                          <IconPlayerStopFilled size={13} />
+                        ) : (
+                          <IconPlayerPlayFilled size={13} />
+                        )}
+                        {auditioning ? "Stop" : "Audition"}
+                      </button>
+                      <button
+                        type="button"
+                        className="jam-idea__keep"
+                        disabled={editingId !== null}
+                        onClick={() => onKeep(idea)}
+                      >
+                        <IconCheck size={14} /> Keep
+                      </button>
+                      <button
+                        type="button"
+                        className="jam-idea__edit"
+                        disabled={editingId !== null}
+                        onClick={() => onEdit(idea)}
+                      >
+                        <IconPencil size={12} /> Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="jam-idea__toss"
+                        title="Toss idea"
+                        aria-label={`Toss ${idea.label}`}
+                        disabled={editingId !== null}
+                        onClick={() => onToss(idea)}
+                      >
+                        <IconX size={15} />
+                      </button>
+                    </>
+                  )}
                 </div>
               </article>
             );

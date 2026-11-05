@@ -11,6 +11,9 @@ export default defineConfig({
   },
   test: {
     env: { DATABASE_URL: "pglite:memory" },
+    // The recorder harness imports ../../video/record.mjs outside this app.
+    // Keep the app suite self-contained; run recorder tests in its own project.
+    include: ["{app,actions,server,shared}/**/*.{test,spec}.{ts,tsx,js,mjs}"],
     exclude: [
       "**/node_modules/**",
       "**/.git/**",

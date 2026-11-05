@@ -32,11 +32,17 @@ function editLabel(edit: HistoryEdit): string {
   return tracks ? `Edited ${tracks}` : "Grid edit";
 }
 
-function editAuthor(author: string): string {
-  if (["you", "user"].includes(author.trim().toLowerCase())) {
-    return "You";
+function editAuthor(author: string): { display: string; colorKey: string } {
+  const trimmed = author.trim() || "Agent";
+  const edited = trimmed.match(/^(.*?)\s*\+\s*You$/i);
+  if (edited && edited[1]?.trim()) {
+    const base = edited[1].trim();
+    return { display: `${base} · edited by You`, colorKey: base };
   }
-  return author.trim() || "Agent";
+  if (["you", "user"].includes(trimmed.toLowerCase())) {
+    return { display: "You", colorKey: "you" };
+  }
+  return { display: trimmed, colorKey: trimmed };
 }
 
 function authorColor(author: string): string {
@@ -140,7 +146,7 @@ export function HistoryDrawer({
             <ol className="divide-y divide-[var(--jam-line)]">
               {data.map((edit, index) => {
                 const author = editAuthor(edit.author);
-                const color = authorColor(author);
+                const color = authorColor(author.colorKey);
                 const newest = index === 0;
                 return (
                   <li className="flex items-start gap-3 py-4" key={edit.id}>
@@ -154,7 +160,7 @@ export function HistoryDrawer({
                           className="rounded-sm border px-2 py-0.5 text-[11px] font-semibold"
                           style={{ borderColor: color, color }}
                         >
-                          {author}
+                          {author.display}
                         </span>
                       </div>
                       <p className="mt-2 text-sm">{editLabel(edit)}</p>

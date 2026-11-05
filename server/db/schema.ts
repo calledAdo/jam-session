@@ -34,9 +34,7 @@ export const tracks = table(
     stepsJson: text("steps_json").notNull(),
     muted: boolean("muted").notNull().default(false),
   },
-  (track) => [
-    index("idx_tracks_session_kind").on(track.sessionId, track.kind),
-  ],
+  (track) => [index("idx_tracks_session_kind").on(track.sessionId, track.kind)],
 );
 
 export const ideas = table(
@@ -48,7 +46,11 @@ export const ideas = table(
     label: text("label").notNull(),
     rationale: text("rationale").notNull(),
     patchJson: text("patch_json").notNull(),
-    status: text("status", { enum: IDEA_STATUSES }).notNull().default("pending"),
+    status: text("status", { enum: IDEA_STATUSES })
+      .notNull()
+      .default("pending"),
+    /** True when the user adjusted the card patch before keeping it. */
+    edited: boolean("edited").notNull().default(false),
     createdAt: text("created_at").notNull().default(now()),
   },
   (idea) => [
@@ -70,6 +72,28 @@ export const taste = table(
     createdAt: text("created_at").notNull().default(now()),
   },
   (entry) => [index("idx_taste_created_at").on(entry.createdAt)],
+);
+
+export const barComments = table(
+  "bar_comments",
+  {
+    id: text("id").primaryKey(),
+    sessionId: text("session_id").notNull(),
+    bar: integer("bar").notNull(),
+    text: text("text").notNull(),
+    status: text("status").notNull().default("open"),
+    reply: text("reply"),
+    replyAuthor: text("reply_author"),
+    ideaId: text("idea_id"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (comment) => [
+    index("idx_bar_comments_session_bar").on(
+      comment.sessionId,
+      comment.bar,
+      comment.createdAt,
+    ),
+  ],
 );
 
 export const edits = table(
@@ -95,5 +119,7 @@ export type IdeaRow = typeof ideas.$inferSelect;
 export type NewIdeaRow = typeof ideas.$inferInsert;
 export type TasteRow = typeof taste.$inferSelect;
 export type NewTasteRow = typeof taste.$inferInsert;
+export type BarCommentRow = typeof barComments.$inferSelect;
+export type NewBarCommentRow = typeof barComments.$inferInsert;
 export type EditRow = typeof edits.$inferSelect;
 export type NewEditRow = typeof edits.$inferInsert;

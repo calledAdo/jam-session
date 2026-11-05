@@ -4,11 +4,19 @@ import {
   activeStepRatio,
   barLeft,
   barWidth,
+  cycleDraftDrum,
+  draftCells,
+  draftPatchForIdea,
+  draftRegions,
+  draftValueAt,
   gridMetricsForWidth,
+  isDraftCell,
   MIN_CELL_W,
   patchPreviewRows,
   selectionBounds,
+  setDraftChord,
   stepX,
+  toggleDraftCell,
   type TrackData,
 } from "./grid";
 
@@ -73,6 +81,76 @@ describe("patchPreviewRows", () => {
         changed: [1],
       },
     ]);
+  });
+});
+
+describe("draft editing helpers", () => {
+  const tracks: TrackData[] = [
+    { kind: "kick", steps: Array.from({ length: 32 }, () => 0) },
+    {
+      kind: "bass",
+      steps: Array.from({ length: 32 }, (_, index) =>
+        index === 16 ? 1 : null,
+      ),
+    },
+    { kind: "keys", steps: ["i", "VI"] },
+  ];
+
+  const patch = [
+    { track: "kick" as const, fromStep: 16, steps: [2, 0, 1] },
+    { track: "bass" as const, fromStep: 16, steps: [1] },
+    { track: "keys" as const, fromStep: 1, steps: ["VII"] },
+  ];
+
+  it("scopes a draft to the regions the idea touches", () => {
+    expect(draftRegions(patch)).toEqual([
+      { track: "kick", start: 16, end: 31 },
+      { track: "bass", start: 16, end: 31 },
+      { track: "keys", start: 1, end: 1 },
+    ]);
+  });
+
+  it("seeds the draft with the idea applied to the current grid", () => {
+    const draft = draftPatchForIdea(tracks, patch);
+
+    expect(draftCells(draft)).toEqual([
+      ...Array.from({ length: 16 }, (_, i) => `kick:${16 + i}`),
+      ...Array.from({ length: 16 }, (_, i) => `bass:${16 + i}`),
+      "keys:1",
+    ]);
+    expect(draftValueAt(tracks, draft, "kick", 16)).toBe(2);
+    expect(draftValueAt(tracks, draft, "keys", 1)).toBe("VII");
+    expect(isDraftCell(draft, "kick", 19)).toBe(true);
+    const toggled = toggleDraftCell(tracks, draft, "kick", 31);
+    expect(draftValueAt(tracks, toggled, "kick", 31)).toBe(1);
+    expect(tracks[0]!.steps[31]).toBe(0);
+    expect(isDraftCell(draft, "kick", 15)).toBe(false);
+  });
+
+  it("cycles drum velocity off -> 1 -> 2 -> 3 -> off", () => {
+    expect(cycleDraftDrum(0)).toBe(1);
+    expect(cycleDraftDrum(1)).toBe(2);
+    expect(cycleDraftDrum(2)).toBe(3);
+    expect(cycleDraftDrum(3)).toBe(0);
+    expect(cycleDraftDrum(null)).toBe(1);
+  });
+
+  it("toggles bass cells and shifts the keys chord inside the draft", () => {
+    const draft = draftPatchForIdea(tracks, patch);
+    const off = toggleDraftCell(tracks, draft, "bass", 16);
+
+    expect(draftValueAt(tracks, off, "bass", 16)).toBeNull();
+    const withChord = setDraftChord(draft, 1, "iv");
+    expect(draftValueAt(tracks, withChord, "keys", 1)).toBe("iv");
+  });
+
+  it("leaves cells outside the draft untouched", () => {
+    const draft = draftPatchForIdea(tracks, patch);
+    const toggled = toggleDraftCell(tracks, draft, "kick", 4);
+
+    expect(toggled).toBe(draft);
+    expect(draftCells(toggled)).not.toContain("kick:4");
+    expect(setDraftChord(draft, 0, "V")).toBe(draft);
   });
 });
 

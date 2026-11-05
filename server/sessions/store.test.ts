@@ -3,9 +3,14 @@ import { drizzle } from "drizzle-orm/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { INITIAL_SCHEMA_SQL } from "../db/migrations.js";
+import {
+  EDIT_COMMENTS_SCHEMA_SQL,
+  INITIAL_SCHEMA_SQL,
+} from "../db/migrations.js";
 import * as schema from "../db/schema.js";
 import {
+  addComment,
+  answerComment,
   applyProgression,
   createSession,
   getEditsForSession,
@@ -13,6 +18,7 @@ import {
   getSession,
   getTasteForSession,
   keepIdea,
+  listComments,
   listSessions,
   proposeIdeas,
   setSteps,
@@ -31,6 +37,7 @@ let testDb: PgliteDatabase<typeof schema>;
 beforeEach(async () => {
   client = new PGlite();
   await client.exec(INITIAL_SCHEMA_SQL);
+  await client.exec(EDIT_COMMENTS_SCHEMA_SQL);
   testDb = drizzle(client, { schema });
 });
 
@@ -318,5 +325,245 @@ describe("jam session store", () => {
     const tray = await getSession(sessionId);
     expect(tray.ideas.map((idea) => idea.label)).not.toContain("Idea 0");
     expect(tray.ideas).toHaveLength(6);
+  });
+
+  it("keeps an edited draft, labels the edit, and rejects a no-op draft", async () => {
+    const detail = await createSession({ bars: 2, seed: "empty" });
+    const sessionId = detail.session.id;
+    await setSteps({
+      sessionId,
+      track: "kick",
+      fromStep: 0,
+      steps: [3, 0, 0, 1],
+    });
+
+    const [idea] = await proposeIdeas({
+      sessionId,
+      ideas: [
+        {
+          author: "Drummer",
+          label: "Soften the downbeat",
+          rationale: "A lighter first hit lets the bass lead.",
+          patch: [{ track: "kick", fromStep: 0, steps: [0, 0, 2, 0] }],
+        },
+      ],
+    });
+
+    const editedPatch = [
+      { track: "kick" as const, fromStep: 0, steps: [1, 0, 0, 1] },
+    ];
+    const kept = await keepIdea(idea!.id, { patch: editedPatch });
+
+    // The override applies, not the card's stored patch.
+    expect(kickSteps(kept).slice(0, 4)).toEqual([1, 0, 0, 1]);
+    expect(kept.idea.edited).toBe(true);
+    expect(kept.idea.author).toBe("Drummer");
+    expect((await getIdeasByIds([idea!.id]))[0]?.edited).toBe(true);
+
+    const history = await getEditsForSession(sessionId);
+    const lastEdit = history[history.length - 1]!;
+    expect(lastEdit.author).toBe("Drummer + You");
+    expect(lastEdit.patch).toEqual(editedPatch);
+
+    const tastes = await getTasteForSession(sessionId);
+    expect(tastes.map((row) => row.weight)).toEqual([1, 1]);
+    expect(tastes.map((row) => row.signal)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Soften the downbeat"),
+        "edited Soften the downbeat",
+      ]),
+    );
+
+    const undone = await undoLast(sessionId);
+    expect(kickSteps(undone).slice(0, 4)).toEqual([3, 0, 0, 1]);
+    expect(undone.undone.author).toBe("Drummer + You");
+
+    const [noopIdea] = await proposeIdeas({
+      sessionId,
+      ideas: [
+        {
+          author: "Drummer",
+          label: "Busier kick",
+          rationale: "Two hits under the bar.",
+          patch: [{ track: "kick", fromStep: 0, steps: [0, 0, 0, 2] }],
+        },
+      ],
+    });
+    await expect(
+      keepIdea(noopIdea!.id, {
+        patch: [{ track: "kick", fromStep: 0, steps: [3, 0, 0, 1] }],
+      }),
+    ).rejects.toThrow(/doesn't change anything/);
+    expect((await getIdeasByIds([noopIdea!.id]))[0]?.status).toBe("pending");
+  });
+
+  it("normalizes overrides, drops no-op entries, and validates session bounds before writing", async () => {
+    const { session } = await createSession({ bars: 2, seed: "empty" });
+    const [idea] = await proposeIdeas({
+      sessionId: session.id,
+      ideas: [
+        {
+          author: "Keys",
+          label: "Minor turnaround",
+          rationale: "Resolve gently.",
+          patch: [{ track: "keys", fromStep: 0, steps: ["i"] }],
+        },
+      ],
+    });
+    await expect(
+      keepIdea(idea!.id, {
+        patch: [{ track: "keys", fromStep: 2, steps: ["VI"] }],
+      }),
+    ).rejects.toThrow(/past the end/);
+    await expect(
+      keepIdea(idea!.id, {
+        patch: [{ track: "kick", fromStep: 0, steps: [4] }],
+      }),
+    ).rejects.toThrow(/velocities/);
+    expect(await getEditsForSession(session.id)).toHaveLength(0);
+    expect(await getTasteForSession(session.id)).toHaveLength(0);
+    const kept = await keepIdea(idea!.id, {
+      patch: [
+        { track: "keys", fromStep: 0, steps: [null] },
+        { track: "keys", fromStep: 1, steps: [" VI "] },
+      ],
+    });
+    expect(keysSteps(kept)).toEqual(["", "VI"]);
+    expect((await getEditsForSession(session.id))[0]!.patch).toEqual([
+      { track: "keys", fromStep: 1, steps: ["VI"] },
+    ]);
+  });
+
+  it("adds, lists, and answers bar comments", async () => {
+    const detail = await createSession({ bars: 4, seed: "empty" });
+    const sessionId = detail.session.id;
+
+    const first = await addComment({
+      sessionId,
+      bar: 2,
+      text: "  Hats are too busy here  ",
+    });
+    await addComment({ sessionId, bar: 0, text: "Kick disappears." });
+    expect(first.text).toBe("Hats are too busy here");
+    expect(first.status).toBe("open");
+    expect(first.reply).toBeNull();
+
+    const listed = await listComments(sessionId);
+    expect(listed).toHaveLength(2);
+    expect((await getSession(sessionId)).comments).toHaveLength(2);
+
+    const [idea] = await proposeIdeas({
+      sessionId,
+      ideas: [
+        {
+          author: "Drummer",
+          label: "Thin the hats in bar 3",
+          rationale: "Space on the offbeats lets the vocal sit.",
+          patch: [{ track: "hat", fromStep: 32, steps: [1, 0, 2, 0] }],
+        },
+      ],
+    });
+
+    const answered = await answerComment({
+      commentId: first.id,
+      reply: "Got it — I thinned the hats, it's in your tray.",
+      replyAuthor: "Drummer",
+      ideaId: idea!.id,
+    });
+    expect(answered.status).toBe("answered");
+    expect(answered.replyAuthor).toBe("Drummer");
+    expect(answered.ideaId).toBe(idea!.id);
+    expect(answered.reply).toMatch(/thinned the hats/);
+
+    const refreshed = await listComments(sessionId);
+    expect(refreshed.find((comment) => comment.id === first.id)?.status).toBe(
+      "answered",
+    );
+    expect(refreshed.find((comment) => comment.bar === 0)?.status).toBe("open");
+
+    await expect(
+      answerComment({
+        commentId: first.id,
+        reply: "Again.",
+        replyAuthor: "Keys",
+      }),
+    ).rejects.toThrow(/already answered/);
+  });
+
+  it("validates comment bar ranges, text lengths, and linked ideas", async () => {
+    const detail = await createSession({ bars: 2, seed: "empty" });
+    const sessionId = detail.session.id;
+
+    await expect(
+      addComment({ sessionId, bar: 2, text: "Out of range." }),
+    ).rejects.toThrow(/out of range/);
+    await expect(
+      addComment({ sessionId, bar: 0.5, text: "Fractional bar." }),
+    ).rejects.toThrow(/out of range/);
+    await expect(
+      addComment({ sessionId, bar: -1, text: "Out of range." }),
+    ).rejects.toThrow(/out of range/);
+    await expect(
+      addComment({ sessionId, bar: 0, text: "   " }),
+    ).rejects.toThrow(/cannot be empty/);
+    await expect(
+      addComment({ sessionId, bar: 0, text: "x".repeat(201) }),
+    ).rejects.toThrow(/200 characters/);
+
+    const comment = await addComment({
+      sessionId,
+      bar: 0,
+      text: "x".repeat(200),
+    });
+    const boundary = await addComment({ sessionId, bar: 1, text: "Last bar" });
+    const before = await getSession(sessionId);
+    await answerComment({
+      commentId: boundary.id,
+      reply: "x".repeat(160),
+      replyAuthor: "Bandmate",
+    });
+    expect((await getSession(sessionId)).tracks).toEqual(before.tracks);
+    await expect(
+      answerComment({
+        commentId: comment.id,
+        reply: "   ",
+        replyAuthor: "Drummer",
+      }),
+    ).rejects.toThrow(/cannot be empty/);
+    await expect(
+      answerComment({
+        commentId: comment.id,
+        reply: "x".repeat(161),
+        replyAuthor: "Drummer",
+      }),
+    ).rejects.toThrow(/160 characters/);
+    await expect(
+      answerComment({
+        commentId: comment.id,
+        reply: "On it.",
+        replyAuthor: "You",
+      }),
+    ).rejects.toThrow(/replyAuthor/);
+
+    const other = await createSession({ bars: 1, seed: "empty" });
+    const [otherIdea] = await proposeIdeas({
+      sessionId: other.session.id,
+      ideas: [
+        {
+          author: "Keys",
+          label: "Leaner chord",
+          rationale: "Hold one harmony.",
+          patch: [{ track: "keys", fromStep: 0, steps: ["i"] }],
+        },
+      ],
+    });
+    await expect(
+      answerComment({
+        commentId: comment.id,
+        reply: "On it.",
+        replyAuthor: "Keys",
+        ideaId: otherIdea!.id,
+      }),
+    ).rejects.toThrow(/different session/);
   });
 });
