@@ -25,11 +25,31 @@ export const SESSION_SEEDS = ["lofi", "house", "empty"] as const;
 
 export type SessionSeed = (typeof SESSION_SEEDS)[number];
 
-export const IDEA_AUTHORS = ["Drummer", "Bassist", "Keys", "You", "agent"] as const;
+export const IDEA_AUTHORS = [
+  "Drummer",
+  "Bassist",
+  "Keys",
+  "You",
+  "agent",
+] as const;
 
 export const IDEA_STATUSES = ["pending", "kept", "tossed"] as const;
 
 export type IdeaStatus = (typeof IDEA_STATUSES)[number];
+
+/** Bandmate voices that can answer a bar comment in the user's chat thread. */
+export const REPLY_AUTHORS = [
+  "Drummer",
+  "Bassist",
+  "Keys",
+  "Bandmate",
+] as const;
+
+export type ReplyAuthor = (typeof REPLY_AUTHORS)[number];
+
+export const COMMENT_STATUSES = ["open", "answered"] as const;
+
+export type CommentStatus = (typeof COMMENT_STATUSES)[number];
 
 export function stepsPerBar(kind: TrackKind): number {
   return kind === "keys" ? 1 : 16;

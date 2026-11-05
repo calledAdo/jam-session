@@ -4,10 +4,12 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 
+import { Popover, PopoverAnchor } from "@/components/ui/popover";
 import { getJamEngine } from "@/lib/jam/audio";
 import {
   STEPS_PER_BAR,
@@ -19,12 +21,15 @@ import {
   selectionBounds,
   selectionFromCorners,
   stepX,
+  type BarCommentData,
   type GridMetrics,
   type Selection,
   type StepValue,
   type TrackData,
   type TrackKind,
 } from "@/lib/jam/grid";
+
+import { BarCommentPopover, BarCommentTrigger } from "./BarComments";
 
 import "./jam.css";
 
@@ -289,6 +294,9 @@ export type GridProps = {
   onMenuAction: (action: SelectionAction) => void;
   onAskBandmate: () => void;
   menuBusy: boolean;
+  comments: BarCommentData[];
+  onAddComment: (bar: number, text: string) => Promise<void>;
+  onSeeIdea: (ideaId: string) => void;
 };
 
 export function Grid(props: GridProps) {
@@ -297,10 +305,28 @@ export function Grid(props: GridProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const latest = useRef(props);
   const [bassIndex, setBassIndex] = useState(0);
+  const [openComment, setOpenComment] = useState<{
+    bar: number;
+    anchor: HTMLElement;
+  } | null>(null);
   const [metrics, setMetrics] = useState(() =>
     gridMetricsForWidth(Number.POSITIVE_INFINITY, bars),
   );
   latest.current = props;
+
+  const commentsByBar = useMemo(() => {
+    const byBar = new Map<number, BarCommentData[]>();
+    for (const comment of props.comments) {
+      const list = byBar.get(comment.bar) ?? [];
+      list.push(comment);
+      byBar.set(comment.bar, list);
+    }
+    return byBar;
+  }, [props.comments]);
+
+  const openComments = useCallback((bar: number, element: HTMLElement) => {
+    setOpenComment({ bar, anchor: element });
+  }, []);
 
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
@@ -463,209 +489,254 @@ export function Grid(props: GridProps) {
     : null;
 
   return (
-    <div className="jam-grid-shell">
-      {selection ? (
-        <div
-          className="jam-selection-tools"
-          role="group"
-          aria-label="Actions for selected bars"
-          data-overlay
-        >
-          <span className="jam-selection-tools__label">
-            <strong>{selectedBars}</strong>
-            <span>
-              {selection.tracks.map((track) => ROW_LABELS[track]).join(" · ")}
-            </span>
-          </span>
-          {(
-            [
-              ["vary", "Vary"],
-              ["fill", "Fill"],
-              ["simplify", "Simplify"],
-              ["darker", "Darker"],
-              ["brighter", "Brighter"],
-            ] as const
-          ).map(([action, label]) => (
-            <button
-              key={action}
-              type="button"
-              className="jam-tool-button"
-              disabled={props.menuBusy}
-              onClick={() => props.onMenuAction(action)}
-            >
-              {label}
-            </button>
-          ))}
-          <button
-            className="jam-tool-button jam-tool-button--agent"
-            type="button"
-            onClick={props.onAskBandmate}
+    <Popover
+      open={openComment !== null}
+      onOpenChange={(open) => {
+        if (!open) setOpenComment(null);
+      }}
+    >
+      <div className="jam-grid-shell">
+        {selection ? (
+          <div
+            className="jam-selection-tools"
+            role="group"
+            aria-label="Actions for selected bars"
+            data-overlay
           >
-            Ask bandmate <IconArrowUpRight size={13} />
-          </button>
-        </div>
-      ) : null}
-
-      <div className="jam-grid-layout">
-        <div
-          className="jam-grid-labels"
-          role="group"
-          aria-label="Track controls"
-        >
-          {TRACK_ORDER.map((kind, row) => (
-            <div
-              key={kind}
-              className="jam-track-label"
-              data-track={kind}
-              style={{ top: rowTop(row), height: ROW_H }}
+            <span className="jam-selection-tools__label">
+              <strong>{selectedBars}</strong>
+              <span>
+                {selection.tracks.map((track) => ROW_LABELS[track]).join(" · ")}
+              </span>
+            </span>
+            {(
+              [
+                ["vary", "Vary"],
+                ["fill", "Fill"],
+                ["simplify", "Simplify"],
+                ["darker", "Darker"],
+                ["brighter", "Brighter"],
+              ] as const
+            ).map(([action, label]) => (
+              <button
+                key={action}
+                type="button"
+                className="jam-tool-button"
+                disabled={props.menuBusy}
+                onClick={() => props.onMenuAction(action)}
+              >
+                {label}
+              </button>
+            ))}
+            <button
+              className="jam-tool-button jam-tool-button--agent"
+              type="button"
+              onClick={props.onAskBandmate}
             >
-              {kind === "bass" ? (
-                <>
-                  <span className="jam-track-label__name">BASS</span>
+              Ask bandmate <IconArrowUpRight size={13} />
+            </button>
+            <button
+              className="jam-tool-button"
+              type="button"
+              title={`Comment on bar ${selection.barStart + 1}`}
+              onClick={(event) =>
+                openComments(selection.barStart, event.currentTarget)
+              }
+            >
+              Comment
+            </button>
+          </div>
+        ) : null}
+
+        <div className="jam-grid-layout">
+          <div
+            className="jam-grid-labels"
+            role="group"
+            aria-label="Track controls"
+          >
+            {TRACK_ORDER.map((kind, row) => (
+              <div
+                key={kind}
+                className="jam-track-label"
+                data-track={kind}
+                style={{ top: rowTop(row), height: ROW_H }}
+              >
+                {kind === "bass" ? (
+                  <>
+                    <span className="jam-track-label__name">BASS</span>
+                    <span
+                      className="jam-degree-control"
+                      role="group"
+                      aria-label={`Scale degree for step ${bassIndex + 1}`}
+                    >
+                      <button
+                        className="jam-degree-control__button"
+                        type="button"
+                        title="Lower selected bass degree"
+                        aria-label="Lower selected bass degree"
+                        onClick={() => props.onBassWheel(bassIndex, -1)}
+                      >
+                        <IconMinus size={11} />
+                      </button>
+                      <span className="jam-degree-control__value jam-mono">
+                        {bassDegree}
+                      </span>
+                      <button
+                        className="jam-degree-control__button"
+                        type="button"
+                        title="Raise selected bass degree"
+                        aria-label="Raise selected bass degree"
+                        onClick={() => props.onBassWheel(bassIndex, 1)}
+                      >
+                        <IconPlus size={11} />
+                      </button>
+                    </span>
+                  </>
+                ) : (
+                  <span className="jam-track-label__name">
+                    {ROW_LABELS[kind]}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div
+            ref={scrollerRef}
+            className="jam-grid-scroll"
+            role="region"
+            aria-label="16-step loop grid"
+          >
+            <div
+              ref={bodyRef}
+              className="jam-grid-body"
+              role="group"
+              aria-label="Loop steps"
+              style={
+                {
+                  width: bodyWidth,
+                  height: bodyHeight,
+                  "--jam-cell-width": `${metrics.cellW}px`,
+                } as React.CSSProperties
+              }
+              onPointerDown={onPointerDown}
+              onKeyDown={onGridKeyDown}
+            >
+              {Array.from({ length: bars }, (_, bar) => {
+                const isSelected = Boolean(
+                  selection &&
+                  bar >= selection.barStart &&
+                  bar <= selection.barEnd,
+                );
+                return (
                   <span
-                    className="jam-degree-control"
-                    role="group"
-                    aria-label={`Scale degree for step ${bassIndex + 1}`}
+                    key={bar}
+                    className="jam-bar-head"
+                    data-bar-header
+                    style={{
+                      left: barLeft(bar, metrics),
+                      width: barWidth(metrics),
+                      height: HEADER_H - 5,
+                    }}
                   >
                     <button
-                      className="jam-degree-control__button"
                       type="button"
-                      title="Lower selected bass degree"
-                      aria-label="Lower selected bass degree"
-                      onClick={() => props.onBassWheel(bassIndex, -1)}
+                      className="jam-bar-tab jam-mono"
+                      data-selected={isSelected ? "true" : undefined}
+                      aria-pressed={isSelected}
+                      aria-label={`Select bar ${bar + 1} across all tracks`}
+                      onClick={(event) => {
+                        const current = latest.current.selection;
+                        const barStart =
+                          event.shiftKey && current
+                            ? Math.min(current.barStart, bar)
+                            : bar;
+                        const barEnd =
+                          event.shiftKey && current
+                            ? Math.max(current.barEnd, bar)
+                            : bar;
+                        onSelect({
+                          tracks: [...TRACK_ORDER],
+                          barStart,
+                          barEnd,
+                        });
+                      }}
                     >
-                      <IconMinus size={11} />
+                      <span>{String(bar + 1).padStart(2, "0")}</span>
+                      <i />
                     </button>
-                    <span className="jam-degree-control__value jam-mono">
-                      {bassDegree}
-                    </span>
-                    <button
-                      className="jam-degree-control__button"
-                      type="button"
-                      title="Raise selected bass degree"
-                      aria-label="Raise selected bass degree"
-                      onClick={() => props.onBassWheel(bassIndex, 1)}
-                    >
-                      <IconPlus size={11} />
-                    </button>
+                    <BarCommentTrigger
+                      bar={bar}
+                      comments={commentsByBar.get(bar) ?? []}
+                      onOpen={(element) => openComments(bar, element)}
+                    />
                   </span>
-                </>
-              ) : (
-                <span className="jam-track-label__name">
-                  {ROW_LABELS[kind]}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-        <div
-          ref={scrollerRef}
-          className="jam-grid-scroll"
-          role="region"
-          aria-label="16-step loop grid"
-        >
-          <div
-            ref={bodyRef}
-            className="jam-grid-body"
-            role="group"
-            aria-label="Loop steps"
-            style={
-              {
-                width: bodyWidth,
-                height: bodyHeight,
-                "--jam-cell-width": `${metrics.cellW}px`,
-              } as React.CSSProperties
-            }
-            onPointerDown={onPointerDown}
-            onKeyDown={onGridKeyDown}
-          >
-            {Array.from({ length: bars }, (_, bar) => {
-              const isSelected = Boolean(
-                selection &&
-                bar >= selection.barStart &&
-                bar <= selection.barEnd,
-              );
-              return (
-                <button
-                  key={bar}
-                  type="button"
-                  className="jam-bar-tab jam-mono"
-                  data-bar-header
-                  data-selected={isSelected ? "true" : undefined}
-                  aria-pressed={isSelected}
-                  aria-label={`Select bar ${bar + 1} across all tracks`}
-                  style={{
-                    left: barLeft(bar, metrics),
-                    width: barWidth(metrics),
-                    height: HEADER_H - 5,
-                  }}
-                  onClick={(event) => {
-                    const current = latest.current.selection;
-                    const barStart =
-                      event.shiftKey && current
-                        ? Math.min(current.barStart, bar)
-                        : bar;
-                    const barEnd =
-                      event.shiftKey && current
-                        ? Math.max(current.barEnd, bar)
-                        : bar;
-                    onSelect({ tracks: [...TRACK_ORDER], barStart, barEnd });
-                  }}
-                >
-                  <span>{String(bar + 1).padStart(2, "0")}</span>
-                  <i />
-                </button>
-              );
-            })}
-            {(["kick", "snare", "hat", "bass"] as const).map((kind, row) => (
-              <StepRow
-                key={kind}
-                kind={kind}
-                row={row}
-                steps={trackByKind(kind)?.steps ?? []}
+                );
+              })}
+              {(["kick", "snare", "hat", "bass"] as const).map((kind, row) => (
+                <StepRow
+                  key={kind}
+                  kind={kind}
+                  row={row}
+                  steps={trackByKind(kind)?.steps ?? []}
+                  bars={bars}
+                  metrics={metrics}
+                  flashing={props.flashing}
+                  ghosts={props.ghosts}
+                  {...(kind === "bass" ? { onFocusCell: setBassIndex } : {})}
+                />
+              ))}
+              <KeysRow
+                steps={trackByKind("keys")?.steps ?? []}
                 bars={bars}
                 metrics={metrics}
                 flashing={props.flashing}
                 ghosts={props.ghosts}
-                {...(kind === "bass" ? { onFocusCell: setBassIndex } : {})}
+                choices={choices}
+                onPickChord={props.onPickChord}
               />
-            ))}
-            <KeysRow
-              steps={trackByKind("keys")?.steps ?? []}
-              bars={bars}
-              metrics={metrics}
-              flashing={props.flashing}
-              ghosts={props.ghosts}
-              choices={choices}
-              onPickChord={props.onPickChord}
-            />
-            <Playhead
-              scrollerRef={scrollerRef}
-              follow={!selection}
-              metrics={metrics}
-            />
-            {rect ? (
-              <div
-                className="jam-select-rect"
-                style={rect}
-                aria-hidden="true"
+              <Playhead
+                scrollerRef={scrollerRef}
+                follow={!selection}
+                metrics={metrics}
               />
-            ) : null}
+              {rect ? (
+                <div
+                  className="jam-select-rect"
+                  style={rect}
+                  aria-hidden="true"
+                />
+              ) : null}
+            </div>
           </div>
         </div>
+        <div className="jam-grid-legend">
+          <span>
+            <i className="jam-legend-dot jam-legend-dot--you" /> YOU
+          </span>
+          <span>
+            <i className="jam-legend-dot jam-legend-dot--agent" /> BANDMATE
+          </span>
+          <span className="jam-grid-legend__hint">
+            Shift-click cycles velocity · Scroll bass to transpose · chord
+            selector edits harmony
+          </span>
+        </div>
+
+        {openComment ? (
+          <>
+            <PopoverAnchor virtualRef={{ current: openComment.anchor }} />
+            <BarCommentPopover
+              key={openComment.bar}
+              bar={openComment.bar}
+              comments={commentsByBar.get(openComment.bar) ?? []}
+              anchor={openComment.anchor}
+              onClose={() => setOpenComment(null)}
+              onSubmit={props.onAddComment}
+              onSeeIdea={props.onSeeIdea}
+            />
+          </>
+        ) : null}
       </div>
-      <div className="jam-grid-legend">
-        <span>
-          <i className="jam-legend-dot jam-legend-dot--you" /> YOU
-        </span>
-        <span>
-          <i className="jam-legend-dot jam-legend-dot--agent" /> BANDMATE
-        </span>
-        <span className="jam-grid-legend__hint">
-          Shift-click cycles velocity · Scroll bass to transpose · chord
-          selector edits harmony
-        </span>
-      </div>
-    </div>
+    </Popover>
   );
 }

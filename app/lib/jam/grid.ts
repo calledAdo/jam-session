@@ -29,6 +29,19 @@ export type SessionData = {
   };
   tracks: TrackData[];
   ideas: IdeaData[];
+  comments?: BarCommentData[];
+};
+
+export type BarCommentData = {
+  id: string;
+  sessionId: string;
+  bar: number;
+  text: string;
+  status: string;
+  reply: string | null;
+  replyAuthor: string | null;
+  ideaId: string | null;
+  createdAt: string;
 };
 
 export type IdeaData = {
@@ -38,6 +51,7 @@ export type IdeaData = {
   label: string;
   rationale: string;
   status: string;
+  edited?: boolean;
   patch: PatchEntry[];
 };
 
@@ -160,6 +174,174 @@ export function patchPreviewRows(
 export function cycleVelocity(current: number): number {
   if (current < 1) return 1;
   return current >= 3 ? 1 : current + 1;
+}
+
+/** Drum cell in an edited draft: off -> 1 -> 2 -> 3 -> off. */
+export function cycleDraftDrum(current: StepValue): number {
+  if (typeof current !== "number" || current <= 0) return 1;
+  return current >= 3 ? 0 : current + 1;
+}
+
+export type DraftRegion = {
+  track: TrackKind;
+  /** First covered step (or bar index for keys). */
+  start: number;
+  /** Last covered step, inclusive. */
+  end: number;
+};
+
+/** Full affected bars, merged per track; keys already use bar indices. */
+export function draftRegions(patch: readonly PatchEntry[]): DraftRegion[] {
+  const byTrack = new Map<TrackKind, Array<{ start: number; end: number }>>();
+  for (const entry of patch) {
+    if (entry.steps.length === 0) continue;
+    const ranges = byTrack.get(entry.track) ?? [];
+    ranges.push({
+      start:
+        entry.track === "keys"
+          ? entry.fromStep
+          : Math.floor(entry.fromStep / STEPS_PER_BAR) * STEPS_PER_BAR,
+      end:
+        entry.track === "keys"
+          ? entry.fromStep + entry.steps.length - 1
+          : Math.ceil((entry.fromStep + entry.steps.length) / STEPS_PER_BAR) *
+              STEPS_PER_BAR -
+            1,
+    });
+    byTrack.set(entry.track, ranges);
+  }
+
+  const regions: DraftRegion[] = [];
+  for (const track of TRACK_ORDER) {
+    const ranges = byTrack.get(track);
+    if (!ranges) continue;
+    ranges.sort((a, b) => a.start - b.start);
+    let current = { ...ranges[0]! };
+    for (const range of ranges.slice(1)) {
+      if (range.start <= current.end + 1) {
+        current.end = Math.max(current.end, range.end);
+      } else {
+        regions.push({ track, ...current });
+        current = { ...range };
+      }
+    }
+    regions.push({ track, ...current });
+  }
+  return regions;
+}
+
+/**
+ * Turns an idea patch into a full draft covering every affected cell, seeded
+ * from the current grid. Clicking inside the draft edits these entries; the
+ * server drops untouched cells when the user keeps it.
+ */
+export function draftPatchForIdea(
+  tracks: readonly TrackData[],
+  patch: readonly PatchEntry[],
+): PatchEntry[] {
+  const after = applyPatchToTracks(tracks, patch);
+  return draftRegions(patch).flatMap(({ track, start, end }) => {
+    const row = after.find((item) => item.kind === track);
+    if (!row) return [];
+    return [
+      {
+        track,
+        fromStep: start,
+        steps: row.steps.slice(start, end + 1),
+      },
+    ];
+  });
+}
+
+/** Every cell covered by a draft, as `kind:index` keys. */
+export function draftCells(draft: readonly PatchEntry[]): string[] {
+  return draft.flatMap((entry) =>
+    entry.steps.map((_, offset) =>
+      cellKey(entry.track, entry.fromStep + offset),
+    ),
+  );
+}
+
+export function isDraftCell(
+  draft: readonly PatchEntry[],
+  kind: TrackKind,
+  index: number,
+): boolean {
+  return draft.some(
+    (entry) =>
+      entry.track === kind &&
+      index >= entry.fromStep &&
+      index < entry.fromStep + entry.steps.length,
+  );
+}
+
+/** Current draft value at a cell, falling back to the live grid. */
+export function draftValueAt(
+  tracks: readonly TrackData[],
+  draft: readonly PatchEntry[],
+  kind: TrackKind,
+  index: number,
+): StepValue {
+  for (let entryIndex = draft.length - 1; entryIndex >= 0; entryIndex -= 1) {
+    const entry = draft[entryIndex]!;
+    if (
+      entry.track === kind &&
+      index >= entry.fromStep &&
+      index < entry.fromStep + entry.steps.length
+    ) {
+      return entry.steps[index - entry.fromStep] ?? null;
+    }
+  }
+  return tracks.find((track) => track.kind === kind)?.steps[index] ?? null;
+}
+
+/** Writes one value into a draft. Cells outside the draft are left alone. */
+export function updateDraftCell(
+  draft: readonly PatchEntry[],
+  kind: TrackKind,
+  index: number,
+  value: StepValue,
+): PatchEntry[] {
+  const next = draft.map((entry) => ({
+    ...entry,
+    steps: [...entry.steps],
+  }));
+  for (let entryIndex = next.length - 1; entryIndex >= 0; entryIndex -= 1) {
+    const entry = next[entryIndex]!;
+    if (
+      entry.track === kind &&
+      index >= entry.fromStep &&
+      index < entry.fromStep + entry.steps.length
+    ) {
+      entry.steps[index - entry.fromStep] = value;
+      return next;
+    }
+  }
+  return draft as PatchEntry[];
+}
+
+/** Toggles a draft cell: drums cycle velocity, bass toggles on/off. */
+export function toggleDraftCell(
+  tracks: readonly TrackData[],
+  draft: readonly PatchEntry[],
+  kind: TrackKind,
+  index: number,
+): PatchEntry[] {
+  if (!isDraftCell(draft, kind, index)) return draft as PatchEntry[];
+  const current = draftValueAt(tracks, draft, kind, index);
+  if (kind === "keys") return draft as PatchEntry[];
+  const next = kind === "bass" ? toggleBass(current) : cycleDraftDrum(current);
+  return updateDraftCell(draft, kind, index, next);
+}
+
+/** Sets the chord in a draft (keys picker). */
+export function setDraftChord(
+  draft: readonly PatchEntry[],
+  bar: number,
+  numeral: string | null,
+): PatchEntry[] {
+  if (!isDraftCell(draft, "keys", bar)) return draft as PatchEntry[];
+  return updateDraftCell(draft, "keys", bar, numeral);
 }
 
 export const DEFAULT_VELOCITY = 2;

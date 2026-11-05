@@ -1,4 +1,5 @@
 import {
+  sendToAgentChatAndConfirm,
   useAgentChatGenerating,
   useChatThreads,
 } from "@agent-native/core/client/agent-chat";
@@ -45,10 +46,17 @@ import {
   cycleVelocity,
   describeSelection,
   diffCells,
+  draftCells,
+  draftPatchForIdea,
+  draftValueAt,
+  isDraftCell,
   patchCells,
+  setDraftChord,
   shiftBassDegree,
   toggleBass,
+  toggleDraftCell,
   toggleDrum,
+  updateDraftCell,
   type IdeaData,
   type PatchEntry,
   type Selection,
@@ -144,10 +152,16 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const undoM = useActionMutation("undo-last");
   const variationsM = useActionMutation("propose-variations");
   const ensureBandAgents = useActionMutation("ensure-band-agents");
+  const addCommentM = useActionMutation("add-comment");
 
   const [playing, setPlaying] = useState(false);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [auditionId, setAuditionId] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{
+    ideaId: string;
+    draft: PatchEntry[];
+  } | null>(null);
+  const [highlightIdeaId, setHighlightIdeaId] = useState<string | null>(null);
   const [flashing, setFlashing] = useState<ReadonlySet<string>>(EMPTY_SET);
   const [notice, setNotice] = useState<string | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
@@ -169,6 +183,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const coachProgressDirty = useRef(false);
 
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notify = useCallback((message: string) => {
     setNotice(message);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -247,6 +262,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     () => () => {
       if (unstickTimer.current) clearTimeout(unstickTimer.current);
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
+      if (highlightTimer.current) clearTimeout(highlightTimer.current);
     },
     [],
   );
@@ -261,27 +277,33 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         ? e.error
         : "Something went wrong.";
 
-  // --- Derived display state (audition overlays the pending idea client-side).
+  // --- Derived display state (audition or an edited draft overlays the grid).
   const auditionIdea = data?.ideas.find((i) => i.id === auditionId) ?? null;
   const displayTracks = useMemo(() => {
     if (!data) return [];
+    if (editing) return applyPatchToTracks(data.tracks, editing.draft);
     return auditionIdea
       ? applyPatchToTracks(data.tracks, auditionIdea.patch)
       : data.tracks;
-  }, [data, auditionIdea]);
-  const ghosts = useMemo(
-    () =>
-      data && auditionIdea
-        ? new Set(patchCells(data.tracks, auditionIdea.patch))
-        : EMPTY_SET,
-    [data, auditionIdea],
-  );
+  }, [data, auditionIdea, editing]);
+  const ghosts = useMemo(() => {
+    if (editing) return new Set(draftCells(editing.draft));
+    return data && auditionIdea
+      ? new Set(patchCells(data.tracks, auditionIdea.patch))
+      : EMPTY_SET;
+  }, [data, auditionIdea, editing]);
 
   useEffect(() => {
     if (auditionId && data && !data.ideas.some((i) => i.id === auditionId)) {
       setAuditionId(null);
     }
   }, [auditionId, data]);
+
+  useEffect(() => {
+    if (editing && data && !data.ideas.some((i) => i.id === editing.ideaId)) {
+      setEditing(null);
+    }
+  }, [editing, data]);
 
   // --- Audio: the engine reads the latest grid on every tick.
   const engine = getJamEngine();
@@ -451,6 +473,23 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     data?.tracks.find((t) => t.kind === kind)?.steps[index];
 
   const onDrumClick = (kind: TrackKind, index: number, shift: boolean) => {
+    if (editing) {
+      if (!isDraftCell(editing.draft, kind, index)) return;
+      setEditing((current) =>
+        current
+          ? {
+              ...current,
+              draft: toggleDraftCell(
+                data?.tracks ?? [],
+                current.draft,
+                kind,
+                index,
+              ),
+            }
+          : current,
+      );
+      return;
+    }
     const current = valueAt(kind, index);
     const isOn = typeof current === "number" && current > 0;
     const next =
@@ -467,12 +506,46 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   };
 
   const onBassClick = (index: number) => {
+    if (editing) {
+      if (!isDraftCell(editing.draft, "bass", index)) return;
+      setEditing((current) =>
+        current
+          ? {
+              ...current,
+              draft: toggleDraftCell(
+                data?.tracks ?? [],
+                current.draft,
+                "bass",
+                index,
+              ),
+            }
+          : current,
+      );
+      return;
+    }
     const next = toggleBass(valueAt("bass", index) ?? null);
     editCells("bass", index, [next]);
     if (next !== null) void engine.preview("bass", next);
   };
 
   const onBassWheel = (index: number, delta: number) => {
+    if (editing) {
+      if (!isDraftCell(editing.draft, "bass", index)) return;
+      const current = draftValueAt(
+        data?.tracks ?? [],
+        editing.draft,
+        "bass",
+        index,
+      );
+      if (!(typeof current === "number" && current > 0)) return;
+      const next = shiftBassDegree(current, delta);
+      if (next === current) return;
+      setEditing({
+        ...editing,
+        draft: updateDraftCell(editing.draft, "bass", index, next),
+      });
+      return;
+    }
     const current = valueAt("bass", index);
     if (!(typeof current === "number" && current > 0)) return;
     const next = shiftBassDegree(current, delta);
@@ -482,6 +555,14 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   };
 
   const onPickChord = (bar: number, numeral: string | null) => {
+    if (editing) {
+      if (!isDraftCell(editing.draft, "keys", bar)) return;
+      setEditing({
+        ...editing,
+        draft: setDraftChord(editing.draft, bar, numeral),
+      });
+      return;
+    }
     if (numeral === null) {
       editCells("keys", bar, [null]);
       return;
@@ -573,6 +654,41 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     );
   };
 
+  const onEdit = (idea: IdeaData) => {
+    if (!data) return;
+    setAuditionId(null);
+    setEditing({
+      ideaId: idea.id,
+      draft: draftPatchForIdea(data.tracks, idea.patch),
+    });
+  };
+
+  const cancelEditing = useCallback(() => setEditing(null), []);
+
+  const onKeepEdited = (idea: IdeaData) => {
+    if (!editing || editing.ideaId !== idea.id) return;
+    const savedEditing = editing;
+    const draft = editing.draft;
+    setEditing(null);
+    setAuditionId(null);
+    // Not marked local: the applied draft flashes amber like any bandmate edit.
+    const rollback = optimistic((d) => ({
+      ...d,
+      tracks: applyPatchToTracks(d.tracks, draft),
+      ideas: d.ideas.filter((i) => i.id !== idea.id),
+    }));
+    keepM.mutate(
+      { ideaId: idea.id, patch: draft },
+      {
+        onError: (e: unknown) => {
+          rollback();
+          setEditing(savedEditing);
+          notify(errorMessage(e));
+        },
+      },
+    );
+  };
+
   const undo = useCallback(() => {
     suppressUntil.current = Date.now() + 2000;
     undoM.mutate(
@@ -603,7 +719,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     }
   };
 
-  const sendPrompt = async (message: string) => {
+  const sendPrompt = async (
+    message: string,
+    extraContext: string[] = [],
+    confirmDelivery = false,
+  ) => {
     if (jamChatTab.current.sessionId !== sessionId) {
       jamChatTab.current = {
         sessionId,
@@ -617,7 +737,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     if (!targetTabId) throw new Error("Could not create a Jam chat thread.");
     jamChatTab.current.tabId = targetTabId;
     writeJamChatTabId(sessionId, targetTabId);
-    const tabId = sendAgentPrompt({
+    const prompt = {
       message,
       context: [
         `Session id: ${sessionId}`,
@@ -628,19 +748,68 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         taste?.summary
           ? `Taste: ${taste.summary}`
           : "Taste: not enough signals yet",
+        ...extraContext,
       ].join("\n"),
       submit: true,
       openSidebar: true,
-      chatTarget: "local",
+      chatTarget: "local" as const,
       targetTabId,
-    });
-    return tabId;
+    };
+    if (confirmDelivery) {
+      const delivery = await sendToAgentChatAndConfirm(prompt);
+      if (!delivery.delivered) {
+        throw new Error(
+          "Open the bandmate chat to connect AI or retry your note.",
+        );
+      }
+      return delivery.tabId;
+    }
+    return sendAgentPrompt(prompt);
   };
 
   const onAskBandmate = () => {
     if (!selection) return;
     void sendPrompt(`Give me ideas for ${describeSelection(selection)}`);
   };
+
+  // --- Bar notes. The note lands first, then the bandmate gets the same
+  // per-jam chat thread with the comment id in its context.
+  const onAddComment = async (bar: number, text: string) => {
+    const { comment } = await addCommentM.mutateAsync({ sessionId, bar, text });
+    const commentId = comment.id;
+    try {
+      await sendPrompt(
+        `Ada left a note on bar ${bar + 1}: "${text}"`,
+        [
+          JSON.stringify({ sessionId, commentId, bar }),
+          "Follow the bar-comments skill: propose ONE idea for this bar, then answer-comment; never write the grid.",
+        ],
+        true,
+      );
+    } catch (cause) {
+      notify(
+        `Note saved, but the bandmate wasn't notified: ${errorMessage(cause)}`,
+      );
+    }
+  };
+
+  const seeIdea = useCallback(
+    (ideaId: string) => {
+      if (!dataRef.current?.ideas.some((idea) => idea.id === ideaId)) {
+        notify("That idea has already left the tray.");
+        return;
+      }
+      setHighlightIdeaId(ideaId);
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLElement>(`[data-idea-id="${CSS.escape(ideaId)}"]`)
+          ?.scrollIntoView({ behavior: "instant", block: "center" });
+      });
+      if (highlightTimer.current) clearTimeout(highlightTimer.current);
+      highlightTimer.current = setTimeout(() => setHighlightIdeaId(null), 2600);
+    },
+    [notify],
+  );
 
   const onUnstick = () => {
     if (bandMoment === "working") return;
@@ -666,18 +835,20 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       {},
       {
         onSuccess: () => {
-          void sendPrompt("Unstick me").then(() => {
-            unstickTimer.current = setTimeout(() => {
-              if (unstickRunObserved.current) return;
-              setBandMoment((current) =>
-                current === "working" ? "sent" : current,
-              );
-              unstickTimer.current = setTimeout(
-                () => setBandMoment(null),
-                4500,
-              );
-            }, 12000);
-          }).catch(showSent);
+          void sendPrompt("Unstick me")
+            .then(() => {
+              unstickTimer.current = setTimeout(() => {
+                if (unstickRunObserved.current) return;
+                setBandMoment((current) =>
+                  current === "working" ? "sent" : current,
+                );
+                unstickTimer.current = setTimeout(
+                  () => setBandMoment(null),
+                  4500,
+                );
+              }, 12000);
+            })
+            .catch(showSent);
         },
         onError: showSent,
       },
@@ -730,6 +901,10 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   // --- Keyboard.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && editing) {
+        setEditing(null);
+        return;
+      }
       if (isTextTarget(event.target)) return;
       if (event.code === "Space") {
         if (
@@ -754,12 +929,16 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         event.preventDefault();
         setHelpOpen(true);
       } else if (event.key === "Escape") {
+        if (editing) {
+          setEditing(null);
+          return;
+        }
         setSelection(null);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlay, undo]);
+  }, [togglePlay, undo, editing]);
 
   // --- application_state for the agent.
   useEffect(() => {
@@ -807,8 +986,27 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     ).catch(() => undefined);
   }, [auditionId]);
 
+  useEffect(() => {
+    const key = `editing-idea:${TAB_ID}`;
+    if (editing) {
+      void writeClientAppState(
+        key,
+        { sessionId, ideaId: editing.ideaId },
+        { requestSource: TAB_ID },
+      ).catch(() => undefined);
+    } else {
+      void deleteClientAppState(key, { requestSource: TAB_ID }).catch(
+        () => undefined,
+      );
+    }
+  }, [sessionId, editing?.ideaId]);
+
   useEffect(
     () => () => {
+      void deleteClientAppState(`editing-idea:${TAB_ID}`, {
+        requestSource: TAB_ID,
+        keepalive: true,
+      }).catch(() => undefined);
       for (const key of ["selection", "transport"]) {
         void deleteClientAppState(key, {
           requestSource: TAB_ID,
@@ -1087,6 +1285,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           onMenuAction={(action) => void onMenuAction(action)}
           onAskBandmate={onAskBandmate}
           menuBusy={menuBusy}
+          comments={data.comments ?? []}
+          onAddComment={onAddComment}
+          onSeeIdea={seeIdea}
         />
       </section>
 
@@ -1094,9 +1295,17 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         ideas={data.ideas}
         tracks={data.tracks}
         auditionId={auditionId}
+        editingId={editing?.ideaId ?? null}
+        draft={editing?.draft ?? null}
+        highlightId={highlightIdeaId}
+        playing={playing}
         onAudition={setAuditionId}
         onKeep={onKeep}
         onToss={onToss}
+        onEdit={onEdit}
+        onCancelEdit={cancelEditing}
+        onKeepEdited={onKeepEdited}
+        onTogglePlay={() => void togglePlay()}
       />
 
       {historyOpen ? (

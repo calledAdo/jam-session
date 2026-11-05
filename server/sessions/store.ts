@@ -4,15 +4,17 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import * as schema from "../db/schema.js";
 import type { DbHandle } from "../db/transaction.js";
+import { seedSession } from "../music/index.js";
 import {
+  REPLY_AUTHORS,
   TRACK_KINDS,
   type IdeaStatus,
   type PatchEntry,
+  type ReplyAuthor,
   type StepValue,
   type SessionSeed,
   type TrackKind,
 } from "./types.js";
-import { seedSession } from "../music/index.js";
 import {
   assertProgressionInput,
   assertPatchInBounds,
@@ -39,10 +41,12 @@ export type Edit = Omit<
   patch: PatchEntry[];
   inverse: PatchEntry[];
 };
+export type BarComment = typeof schema.barComments.$inferSelect;
 export type SessionDetail = {
   session: Session;
   tracks: Track[];
   ideas: Idea[];
+  comments: BarComment[];
 };
 
 function newId(): string {
@@ -97,6 +101,7 @@ function toIdea(row: typeof schema.ideas.$inferSelect): Idea {
       row.patchJson,
       `Idea ${row.id} patch_json`,
     ),
+    edited: row.edited,
     createdAt: row.createdAt,
   };
 }
@@ -131,10 +136,7 @@ async function requireSession(
   return session;
 }
 
-async function loadTracks(
-  sessionId: string,
-  db: DbHandle,
-): Promise<Track[]> {
+async function loadTracks(sessionId: string, db: DbHandle): Promise<Track[]> {
   const rows = await db
     .select()
     .from(schema.tracks)
@@ -170,16 +172,15 @@ export async function getSession(
   db: DbHandle = getDb(),
 ): Promise<SessionDetail> {
   const session = await requireSession(sessionId, db);
-  return {
-    session,
-    tracks: await loadTracks(sessionId, db),
-    ideas: await loadPendingIdeas(sessionId, db),
-  };
+  const [tracks, ideas, comments] = await Promise.all([
+    loadTracks(sessionId, db),
+    loadPendingIdeas(sessionId, db),
+    loadComments(sessionId, db),
+  ]);
+  return { session, tracks, ideas, comments };
 }
 
-export async function listSessions(
-  db: DbHandle = getDb(),
-): Promise<Session[]> {
+export async function listSessions(db: DbHandle = getDb()): Promise<Session[]> {
   return db
     .select()
     .from(schema.sessions)
@@ -296,11 +297,7 @@ export async function updateTransport(
     patch.scale = scale;
   }
   if (input.swing !== undefined) {
-    if (
-      !Number.isFinite(input.swing) ||
-      input.swing < 0 ||
-      input.swing > 1
-    ) {
+    if (!Number.isFinite(input.swing) || input.swing < 0 || input.swing > 1) {
       inputError("swing must be a number from 0 to 1.");
     }
     patch.swing = input.swing;
@@ -345,11 +342,7 @@ async function applyEntries(
       fromStep: entry.fromStep,
       steps: before,
     });
-    track.steps.splice(
-      entry.fromStep,
-      entry.steps.length,
-      ...entry.steps,
-    );
+    track.steps.splice(entry.fromStep, entry.steps.length, ...entry.steps);
     changed.set(entry.track, track);
   }
 
@@ -382,10 +375,7 @@ function mutableTrackMap(tracks: Track[]): Map<TrackKind, MutableTrack> {
   );
 }
 
-function removeNoopEntries(
-  patch: PatchEntry[],
-  tracks: Track[],
-): PatchEntry[] {
+function removeNoopEntries(patch: PatchEntry[], tracks: Track[]): PatchEntry[] {
   const original = new Map(
     tracks.map((track) => [track.kind, track.steps.slice()]),
   );
@@ -400,7 +390,9 @@ function removeNoopEntries(
       inputError(`Track "${entry.track}" does not exist in this session.`);
     }
     if (
-      entry.steps.some((value, index) => steps[entry.fromStep + index] !== value)
+      entry.steps.some(
+        (value, index) => steps[entry.fromStep + index] !== value,
+      )
     ) {
       changedEntries.push(entry);
     }
@@ -408,7 +400,9 @@ function removeNoopEntries(
   }
 
   const changesGrid = TRACK_KINDS.some((track) =>
-    original.get(track)!.some((value, index) => value !== working.get(track)![index]),
+    original
+      .get(track)!
+      .some((value, index) => value !== working.get(track)![index]),
   );
   return changesGrid ? changedEntries : [];
 }
@@ -429,9 +423,7 @@ export async function applyPatchToSession(
   const author = input.author?.trim() || "user";
 
   await db.transaction(async (tx) => {
-    const tracks = mutableTrackMap(
-      await loadTracks(input.sessionId, tx),
-    );
+    const tracks = mutableTrackMap(await loadTracks(input.sessionId, tx));
     const inverse = await applyEntries(tx, tracks, patch);
     await tx.insert(schema.edits).values({
       id: newId(),
@@ -550,6 +542,7 @@ export async function proposeIdeas(
       rationale,
       patchJson: JSON.stringify(patch),
       status: "pending" as const,
+      edited: false,
       createdAt: "",
     };
   });
@@ -602,11 +595,18 @@ function tasteSignal(idea: Idea): string {
 
 export type KeepIdeaResult = SessionDetail & { idea: Idea };
 
+export type KeepIdeaInput = {
+  /** Optional client-side draft replacing the card's stored patch. */
+  patch?: unknown;
+};
+
 /** Applies an idea's patch, marks it kept, records undo history, logs taste. */
 export async function keepIdea(
   ideaId: string,
+  input: KeepIdeaInput = {},
   db: DbHandle = getDb(),
 ): Promise<KeepIdeaResult> {
+  const edited = input.patch !== undefined;
   const kept = await db.transaction(async (tx) => {
     const idea = await requireIdea(ideaId, tx);
     if (idea.status !== "pending") {
@@ -614,33 +614,68 @@ export async function keepIdea(
     }
 
     const session = await requireSession(idea.sessionId, tx);
-    const patch = normalizePatch(idea.patch, session.bars);
-    const tracks = mutableTrackMap(
-      await loadTracks(idea.sessionId, tx),
+    const currentTracks = await loadTracks(idea.sessionId, tx);
+    const normalized = normalizePatch(
+      edited ? input.patch : idea.patch,
+      session.bars,
     );
+    // An edited draft can contain untouched cells plus the user's tweaks.
+    // Drop those no-ops and refuse a draft that leaves the grid alone.
+    const patch = edited
+      ? removeNoopEntries(normalized, currentTracks)
+      : normalized;
+    if (patch.length === 0) {
+      throw new NoWriteError(
+        "That edit doesn't change anything — tweak a cell first",
+        { errorCode: "no_op_patch", statusCode: 400 },
+      );
+    }
+
+    const tracks = mutableTrackMap(currentTracks);
     const inverse = await applyEntries(tx, tracks, patch);
+    const author = edited ? `${idea.author} + You` : idea.author;
 
     await tx.insert(schema.edits).values({
       id: newId(),
       sessionId: idea.sessionId,
       patchJson: JSON.stringify(patch),
       inverseJson: JSON.stringify(inverse),
-      author: idea.author,
+      author,
       createdAt: nowIso(),
     });
     await tx
       .update(schema.ideas)
-      .set({ status: "kept" })
+      .set(edited ? { status: "kept", edited: true } : { status: "kept" })
       .where(eq(schema.ideas.id, idea.id));
-    await tx.insert(schema.taste).values({
-      id: newId(),
-      sessionId: idea.sessionId,
-      signal: tasteSignal(idea),
-      weight: 1,
-      createdAt: nowIso(),
-    });
 
-    return { ...idea, status: "kept" as const };
+    const now = nowIso();
+    const tasteRows = [
+      {
+        id: newId(),
+        sessionId: idea.sessionId,
+        signal: tasteSignal(idea),
+        weight: 1,
+        createdAt: now,
+      },
+    ];
+    if (edited) {
+      // A second, explicit signal: the user liked the idea enough to work on
+      // it, which is stronger than a straight keep.
+      tasteRows.push({
+        id: newId(),
+        sessionId: idea.sessionId,
+        signal: `edited ${idea.label}`,
+        weight: 1,
+        createdAt: now,
+      });
+    }
+    await tx.insert(schema.taste).values(tasteRows);
+
+    return {
+      ...idea,
+      status: "kept" as const,
+      edited: edited || idea.edited,
+    };
   });
 
   return { ...(await getSession(kept.sessionId, db)), idea: kept };
@@ -722,7 +757,8 @@ export async function revertToEdit(
       .orderBy(desc(schema.edits.createdAt), desc(schema.edits.id));
     const edits = rows.map(toEdit);
     const targetIndex = edits.findIndex((edit) => edit.id === editId);
-    if (targetIndex < 0) inputError(`Edit ${editId} not found in this session.`);
+    if (targetIndex < 0)
+      inputError(`Edit ${editId} not found in this session.`);
     if (targetIndex === 0) inputError("The session is already at this edit.");
 
     const patch = edits
@@ -750,6 +786,142 @@ export async function revertToEdit(
   });
 
   return { ...(await getSession(sessionId, db)), ...result };
+}
+
+export const MAX_COMMENT_LENGTH = 200;
+export const MAX_REPLY_LENGTH = 160;
+
+export type AddCommentInput = {
+  sessionId: string;
+  bar: number;
+  text: string;
+};
+
+/** Adds a note on one zero-based bar. Notes start open until a bandmate answers. */
+export async function addComment(
+  input: AddCommentInput,
+  db: DbHandle = getDb(),
+): Promise<BarComment> {
+  const session = await requireSession(input.sessionId, db);
+  if (
+    !Number.isInteger(input.bar) ||
+    input.bar < 0 ||
+    input.bar >= session.bars
+  ) {
+    inputError(
+      `Bar ${String(input.bar)} is out of range. Use a zero-based bar from 0 to ${
+        session.bars - 1
+      }.`,
+    );
+  }
+  const text = typeof input.text === "string" ? input.text.trim() : "";
+  if (!text) inputError("Comment text cannot be empty.");
+  if (text.length > MAX_COMMENT_LENGTH) {
+    inputError(
+      `Comment text must be ${MAX_COMMENT_LENGTH} characters or fewer.`,
+    );
+  }
+
+  const comment: BarComment = {
+    id: newId(),
+    sessionId: input.sessionId,
+    bar: input.bar,
+    text,
+    status: "open",
+    reply: null,
+    replyAuthor: null,
+    ideaId: null,
+    createdAt: nowIso(),
+  };
+  await db.insert(schema.barComments).values(comment);
+  return comment;
+}
+
+export async function listComments(
+  sessionId: string,
+  db: DbHandle = getDb(),
+): Promise<BarComment[]> {
+  await requireSession(sessionId, db);
+  return loadComments(sessionId, db);
+}
+
+async function loadComments(
+  sessionId: string,
+  db: DbHandle,
+): Promise<BarComment[]> {
+  return db
+    .select()
+    .from(schema.barComments)
+    .where(eq(schema.barComments.sessionId, sessionId))
+    .orderBy(schema.barComments.createdAt, schema.barComments.id);
+}
+
+export type AnswerCommentInput = {
+  commentId: string;
+  reply: string;
+  replyAuthor: ReplyAuthor | string;
+  ideaId?: string | null | undefined;
+};
+
+/** Attaches one bandmate reply (and optional idea card) to an open note. */
+export async function answerComment(
+  input: AnswerCommentInput,
+  db: DbHandle = getDb(),
+): Promise<BarComment> {
+  const [row] = await db
+    .select()
+    .from(schema.barComments)
+    .where(eq(schema.barComments.id, input.commentId))
+    .limit(1);
+  if (!row) inputError(`Comment ${input.commentId} not found.`);
+  if (row.status !== "open") {
+    inputError(`Comment ${row.id} is already ${row.status}.`);
+  }
+
+  const reply = typeof input.reply === "string" ? input.reply.trim() : "";
+  if (!reply) inputError("Reply text cannot be empty.");
+  if (reply.length > MAX_REPLY_LENGTH) {
+    inputError(`Reply text must be ${MAX_REPLY_LENGTH} characters or fewer.`);
+  }
+  if (!(REPLY_AUTHORS as readonly string[]).includes(input.replyAuthor)) {
+    inputError(`replyAuthor must be one of: ${REPLY_AUTHORS.join(", ")}.`);
+  }
+
+  let ideaId: string | null = null;
+  if (input.ideaId !== undefined && input.ideaId !== null) {
+    const candidate = input.ideaId.trim();
+    if (!candidate) inputError("ideaId cannot be blank.");
+    const idea = await requireIdea(candidate, db);
+    if (idea.sessionId !== row.sessionId) {
+      inputError("That idea belongs to a different session.");
+    }
+    ideaId = idea.id;
+  }
+
+  const updated: BarComment = {
+    ...row,
+    status: "answered",
+    reply,
+    replyAuthor: String(input.replyAuthor),
+    ideaId,
+  };
+  const saved = await db
+    .update(schema.barComments)
+    .set({
+      status: updated.status,
+      reply: updated.reply,
+      replyAuthor: updated.replyAuthor,
+      ideaId: updated.ideaId,
+    })
+    .where(
+      and(
+        eq(schema.barComments.id, row.id),
+        eq(schema.barComments.status, "open"),
+      ),
+    )
+    .returning();
+  if (saved.length === 0) inputError(`Comment ${row.id} is already answered.`);
+  return saved[0]!;
 }
 
 export async function getTasteForSession(

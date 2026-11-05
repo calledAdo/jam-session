@@ -3,7 +3,10 @@ import { drizzle } from "drizzle-orm/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { INITIAL_SCHEMA_SQL } from "../server/db/migrations.js";
+import {
+  EDIT_COMMENTS_SCHEMA_SQL,
+  INITIAL_SCHEMA_SQL,
+} from "../server/db/migrations.js";
 import * as schema from "../server/db/schema.js";
 import {
   createSession,
@@ -22,6 +25,7 @@ let testDb: PgliteDatabase<typeof schema>;
 beforeEach(async () => {
   client = new PGlite();
   await client.exec(INITIAL_SCHEMA_SQL);
+  await client.exec(EDIT_COMMENTS_SCHEMA_SQL);
   testDb = drizzle(client, { schema });
 });
 

@@ -13,6 +13,9 @@ const INITIAL_TOOL_NAMES = [
   "provider-api-request",
   "ask-question",
   "agent-teams",
+  "add-comment",
+  "list-comments",
+  "answer-comment",
 ];
 
 export default createAgentChatPlugin({
