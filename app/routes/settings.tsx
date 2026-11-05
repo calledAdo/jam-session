@@ -8,8 +8,6 @@ import {
 
 import { APP_TITLE } from "@/lib/app-config";
 
-import changelog from "../../CHANGELOG.md?raw";
-
 export function meta() {
   return [{ title: `Settings - ${APP_TITLE}` }];
 }
@@ -24,7 +22,6 @@ export default function SettingsRoute() {
     <SettingsTabsPage
       account={<AccountSettingsCard />}
       extraTabs={agentSettingsTabs}
-      whatsNewMarkdown={changelog}
     />
   );
 }

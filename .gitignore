@@ -42,3 +42,12 @@ learnings.md
 .agent-native/
 data/*.lock
 llmtimeline/
+
+# Local-only: template boilerplate and demo-recorder tooling (not part of the app)
+DESIGN.md
+DEVELOPING.md
+CHANGELOG.md
+changelog/
+learnings.defaults.md
+.claude/skills
+video/
