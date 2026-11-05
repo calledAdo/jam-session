@@ -1,25 +1,53 @@
 # Jam Session
 
-A sketchbook for music ideas, with a band in the margins. Tap squares to
-sketch a beat on your phone or laptop; three AI bandmates (Drummer, Bassist,
-Keys) sketch ideas next to yours. Listen, use, tweak or skip each one. Nothing
-goes into your sketch until you say so. When you're stuck, ask the band.
+**Every song starts as a sketch.** Jam Session is a phone-first sketchbook for
+music ideas, with an AI band in the margins.
 
 Built with [Agent-Native](https://github.com/BuilderIO/agent-native) for the
-Builder.io Agent-Native Hackathon (Nov 2026).
+Builder.io Agent-Native Hackathon (Nov 2026). Demo:
+[clips.agent-native.com/share/LLO4rxmRMsg6](https://clips.agent-native.com/share/LLO4rxmRMsg6)
 
-## What you can do
+## Why
 
-- **Play and edit** a looping drum, bass and chord grid (Tone.js, in the browser).
-- **Select bars** and hit *Vary · Fill · Simplify · Darker · Brighter* for three
-  instant variations, or *Ask bandmate* to have the agent pick.
-- **Unstick me**: the agent diagnoses the groove and three bandmates (Drummer,
-  Bassist, Keys) each propose one idea.
-- **Ask in chat**: "make the last bar build into the drop", "give me a swing
-  knob" (the agent renders a live control inline).
-- **Taste memory**: what you keep or toss shapes future suggestions.
-- **Daily spark**: a 9 AM automation leaves a fresh 2-bar seed in your style.
-- **History**: every edit, yours or the agent's, with "revert to here".
+Most music ideas never make it past the first loop:
+
+- **Too heavy to capture.** Studio software lives on a laptop; the idea arrives on the bus.
+- **Too lonely to finish.** Alone, a sketch stalls on the same eight bars.
+- **AI takes over.** Today's music AI writes the whole song, and it stops being yours.
+
+Musicians don't want a robot composer. They want a band. Bandmates suggest; the
+artist decides.
+
+## What it does
+
+Tap squares to sketch a beat on your phone. Three AI bandmates (Drummer,
+Bassist, Keys) sketch ideas next to yours. You **Listen**, **Use it**,
+**Tweak** or **Skip**. Nothing changes until you say yes, and that rule is
+enforced in code, not just in the prompt.
+
+- **Sketch** one bar per screen, in plain words: Speed, Mood (Sad/Happy), Bounce,
+  named chords. Start from Chill, Dance or an empty page.
+- **I'm stuck — help me**: the band listens in parallel and each bandmate
+  pitches one idea with a before/after preview.
+- **Quick asks**: Busier, Calmer, Darker, Brighter, Build up, Surprise me, or
+  type anything ("give me a swing knob" renders a live control in chat).
+- **Notes on bars**: "needs to build into the drop", and the right bandmate
+  replies on the page with an idea for that bar.
+- **Tweak before you use**: edit the band's idea on the grid; history records
+  "Keys + You".
+- **It remembers**: learns your taste from what you use and skip, and a daily
+  automation leaves a fresh idea each morning.
+- **History**: every edit, yours or the band's, with "revert to here".
+
+## Who it's for
+
+Bedroom producers who get stuck, beginners learning how beats work, and
+songwriters who need a groove to write over, without a studio.
+
+## What's next
+
+Hum a rhythm in, export to MIDI/WAV for any studio app, and live jams where
+friends and AI bandmates share one sketch.
 - **Use it from Claude**: the jam actions are an MCP server, and the grid renders
   inline in Claude as an MCP App.
 
