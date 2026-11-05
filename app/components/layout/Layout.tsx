@@ -89,6 +89,8 @@ function LayoutShell({ children }: LayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const isChatRoute = isChatPathname(location.pathname);
+  const isJamRoute =
+    location.pathname === "/home" || location.pathname.startsWith("/s/");
   // Settings brings its own navigation, header, and agent toggle, so it
   // renders full width.
   const settingsOwnsChrome = isSettingsPathname(location.pathname);
@@ -174,6 +176,14 @@ function LayoutShell({ children }: LayoutProps) {
       </main>
     </div>
   );
+
+  if (isJamRoute) {
+    return (
+      <div className="jam-layout-shell h-screen overflow-hidden">
+        <main className="h-full overflow-auto">{children}</main>
+      </div>
+    );
+  }
 
   return (
     <HeaderActionsProvider>

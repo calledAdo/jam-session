@@ -3,6 +3,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { AgentPanel } from "@agent-native/toolkit/app/chat";
 import {
   IconArrowRight,
   IconMusic,
@@ -18,7 +19,7 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
-import type { SessionData } from "@/lib/jam/grid";
+import { TAB_ID } from "@/lib/tab-id";
 
 import { isSparkSessionName } from "../../../server/music/spark";
 
@@ -61,36 +62,9 @@ function mood(scale: string) {
 }
 
 function SketchCard({ session }: { session: SessionRow }) {
-  const ref = useRef<HTMLAnchorElement>(null);
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    if (!ref.current) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "100px" },
-    );
-    observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, []);
-  const { data } = useActionQuery(
-    "get-session",
-    { id: session.id },
-    { enabled: visible, staleTime: 60_000 },
-  ) as { data: SessionData | undefined };
-  const { data: edits } = useActionQuery(
-    "list-edits",
-    { sessionId: session.id },
-    { enabled: visible, staleTime: 60_000 },
-  ) as { data: { createdAt: string }[] | undefined };
-  const lastEdit = edits?.[0]?.createdAt;
-  const date = lastEdit ?? session.createdAt;
+  const date = session.createdAt;
   return (
-    <Link ref={ref} className="jam-sketch-card" to={`/s/${session.id}`}>
+    <Link className="jam-sketch-card" to={`/s/${session.id}`}>
       <div className="jam-sketch-card__heading">
         <h3>{session.name}</h3>
         <IconArrowRight size={18} />
@@ -100,35 +74,12 @@ function SketchCard({ session }: { session: SessionRow }) {
         {session.bpm < 100 ? "slow" : session.bpm < 120 ? "steady" : "fast"}{" "}
         <small>· {session.bpm}</small>
       </p>
-      <div
-        className="jam-sketch-preview"
-        aria-hidden="true"
-        data-loaded={!!data}
-      >
-        {data ? (
-          data.tracks.map((track) => (
-            <div key={track.kind}>
-              {track.steps
-                .slice(0, track.kind === "keys" ? 1 : 16)
-                .map((value, i) => (
-                  <i
-                    key={i}
-                    data-on={
-                      typeof value === "string" ||
-                      (typeof value === "number" && value > 0) ||
-                      undefined
-                    }
-                  />
-                ))}
-            </div>
-          ))
-        ) : (
-          <span />
-        )}
-      </div>
+      <span className="jam-sketch-meta">
+        {session.root} {mood(session.scale)} · {session.bars} bars
+      </span>
       {date && (
         <time dateTime={date}>
-          {lastEdit ? "Edited" : "Created"}{" "}
+          Created{" "}
           {new Date(date).toLocaleDateString(undefined, {
             month: "short",
             day: "numeric",
@@ -144,6 +95,11 @@ export function JamHome() {
   const bandAgentsRequested = useRef(false);
   const navigate = useNavigate();
   const [newOpen, setNewOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [seed, setSeed] = useState<(typeof SEEDS)[number]["seed"]>("lofi");
+  const [bars, setBars] = useState(8);
+  const [search, setSearch] = useState("");
+  const [describing, setDescribing] = useState(false);
   const [description, setDescription] = useState("");
   const [sending, setSending] = useState(false);
   const [describeError, setDescribeError] = useState("");
@@ -152,13 +108,14 @@ export function JamHome() {
     setSending(true);
     setDescribeError("");
     setNewOpen(false);
+    setDescribing(true);
     try {
       const delivery = await sendToAgentChatAndConfirm({
         message: description.trim(),
         context:
           "Start a NEW Jam Session sketch from this description. Pick the closest vibe (lofi, boombap, trap, house, empty) and kit (dusty, boombap, 808, clean). Call create-session with seed and kit; keep the vibe's default transport unless the user specifies otherwise. Read get-taste, then use read-only generators and propose-ideas for three distinct, non-no-op ideas authored by the right bandmates. Do not apply ideas. Call navigate with path /s/<created session id> to open the new session. Follow the Jam starter workflow.",
         submit: true,
-        openSidebar: true,
+        openSidebar: false,
         chatTarget: "local",
       });
       if (!delivery.delivered)
@@ -170,6 +127,7 @@ export function JamHome() {
           ? cause.message
           : "Could not reach the band. Try again.",
       );
+      setDescribing(false);
       setNewOpen(true);
     } finally {
       setSending(false);
@@ -210,8 +168,13 @@ export function JamHome() {
     [sessions],
   );
   const sketches = useMemo(
-    () => sessions.filter((session) => session.id !== spark?.id),
-    [sessions, spark],
+    () =>
+      sessions.filter(
+        (session) =>
+          session.id !== spark?.id &&
+          session.name.toLowerCase().includes(search.toLowerCase()),
+      ),
+    [sessions, spark, search],
   );
   return (
     <div className="jam-root jam-home">
@@ -220,10 +183,8 @@ export function JamHome() {
           <div className="jam-wordmark">
             <span className="jam-wordmark__mark">J</span>JAM SESSION
           </div>
-          <h1>Your sketches</h1>
-          <p className="jam-home__subhead">
-            A sketchbook for producers, with a band in the margins.
-          </p>
+          <h1>Pick up a sketch.</h1>
+          <p className="jam-home__subhead">A little room for your next idea.</p>
           <button
             type="button"
             className="jam-primary jam-new-sketch"
@@ -233,10 +194,10 @@ export function JamHome() {
             New sketch
           </button>
         </header>
-        <section className="jam-spark" aria-label="Fresh idea for today">
+        <section className="jam-spark" aria-label="Daily spark">
           <div className="jam-spark__label">
             <IconSun size={18} />
-            <span>Fresh idea for today</span>
+            <span>Daily spark</span>
           </div>
           {spark ? (
             <Link className="jam-spark__loop" to={`/s/${spark.id}`}>
@@ -263,9 +224,16 @@ export function JamHome() {
         </section>
         <section className="jam-home__section">
           <div className="jam-section-heading">
-            <h2>Pick up a sketch</h2>
+            <h2>Your sketches</h2>
             <span>{sketches.length} saved</span>
           </div>
+          <input
+            className="jam-input jam-sketch-search"
+            aria-label="Find a sketch"
+            placeholder="Find a sketch…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           {isLoading ? (
             <div className="jam-crate__loading" aria-label="Loading sketches">
               <span />
@@ -291,7 +259,9 @@ export function JamHome() {
             </div>
           ) : (
             <p className="jam-state-row">
-              An empty page is a good place to start.
+              {search
+                ? `No sketches match “${search}”.`
+                : "A few hits are enough to start."}
             </p>
           )}
           {sketches.length > limit && (
@@ -304,9 +274,29 @@ export function JamHome() {
             </button>
           )}
         </section>
-        <Link to="/chat" className="jam-home__chat-link">
-          Open band chat <IconArrowRight size={16} />
+        <Link to="/settings" className="jam-home__settings">
+          Settings & connections
         </Link>
+        {describing && (
+          <div className="jam-starter-band">
+            <button className="jam-btn" onClick={() => setDescribing(false)}>
+              Back to sketches
+            </button>
+            <AgentPanel
+              storageKey="jam-starter"
+              browserTabId={TAB_ID}
+              chatOnly
+              showHeader={false}
+              dynamicSuggestions={false}
+              showPageHeader={false}
+              showTabBar={false}
+              showCollapseButton={false}
+              composerAutoFocus={false}
+              emptyStateText="Describe your next sketch."
+              composerPlaceholder="Something slow and rainy…"
+            />
+          </div>
+        )}
         <Sheet open={newOpen} onOpenChange={setNewOpen}>
           <SheetContent
             side="bottom"
@@ -316,28 +306,64 @@ export function JamHome() {
             <SheetDescription>
               Choose a feeling. Make it yours.
             </SheetDescription>
+            <label className="jam-new-name">
+              Name <span>optional</span>
+              <input
+                className="jam-input"
+                placeholder="Untitled jam"
+                maxLength={80}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <h3 className="jam-feel-label">Pick a feel</h3>
             <div className="jam-seed-choices">
-              {SEEDS.map((seed) => (
+              {SEEDS.map((choice) => (
                 <button
-                  key={seed.seed}
+                  key={choice.seed}
                   type="button"
                   className="jam-seed-choice"
+                  aria-pressed={seed === choice.seed}
                   disabled={create.isPending || sending}
-                  onClick={() =>
-                    create.mutate({
-                      seed: seed.seed,
-                      name: `${seed.label} sketch`,
-                    })
-                  }
+                  onClick={() => setSeed(choice.seed)}
                 >
                   <span>
-                    <strong>{seed.label}</strong>
-                    <p>{seed.blurb}</p>
+                    <strong>{choice.label}</strong>
+                    <p>{choice.blurb}</p>
                   </span>
                   <IconArrowRight size={21} />
                 </button>
               ))}
             </div>
+            <details className="jam-new-length">
+              <summary>Length · {bars} bars</summary>
+              <label>
+                Bars{" "}
+                <select
+                  value={bars}
+                  onChange={(e) => setBars(Number(e.target.value))}
+                >
+                  {Array.from({ length: 16 }, (_, i) => (
+                    <option key={i} value={i + 1}>
+                      {i + 1}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </details>
+            <button
+              className="jam-primary jam-create-sketch"
+              disabled={create.isPending || sending}
+              onClick={() =>
+                create.mutate({
+                  seed,
+                  name: name.trim() || "Untitled jam",
+                  bars,
+                })
+              }
+            >
+              {create.isPending ? "Creating…" : "Create sketch"}
+            </button>
             <form
               className="jam-describe"
               onSubmit={(event) => {

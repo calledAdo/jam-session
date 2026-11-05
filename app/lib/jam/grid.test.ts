@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   activeStepRatio,
+  bassNoteName,
+  adjacentStep,
   chordName,
   chordChoices,
   pageBars,
@@ -217,5 +219,33 @@ describe("sketchbook presentation", () => {
     expect(pageBars(99, 8, 1)).toEqual([7]);
     expect(pageBars(-1, 8, 1)).toEqual([0]);
     expect(pageBars(0, 0, 1)).toEqual([]);
+  });
+});
+
+describe("beginner note labels", () => {
+  it("resolves bass degrees using the same scale as playback", () => {
+    expect(bassNoteName("D", "minor", 1)).toBe("D");
+    expect(bassNoteName("D", "minor", 3)).toBe("F");
+    expect(bassNoteName("F", "minor", 8)).toBe("F");
+    expect(bassNoteName("C", "pentatonic minor", 6)).toBe("C");
+  });
+  it("labels rests and invalid data without inventing a sounding note", () => {
+    for (const value of [null, 0, -1, 1.2, "i"])
+      expect(bassNoteName("C", "minor", value)).toBe("—");
+    expect(bassNoteName("bad", "minor", 1)).toBe("—");
+  });
+});
+
+describe("focused bar keyboard navigation", () => {
+  it("moves between phone beat rows without leaving the bar", () => {
+    expect(adjacentStep(2, "ArrowDown", true)).toBe(6);
+    expect(adjacentStep(6, "ArrowUp", true)).toBe(2);
+    expect(adjacentStep(0, "ArrowLeft", true)).toBe(0);
+    expect(adjacentStep(15, "ArrowRight", true)).toBe(15);
+    expect(adjacentStep(13, "ArrowDown", true)).toBe(15);
+  });
+  it("preserves a desktop row on vertical arrows", () => {
+    expect(adjacentStep(7, "ArrowUp", false)).toBe(7);
+    expect(adjacentStep(7, "ArrowRight", false)).toBe(8);
   });
 });

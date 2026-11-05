@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 
 import {
+  chordName,
   patchPreviewRows,
   type IdeaData,
   type PatchEntry,
@@ -17,20 +18,23 @@ import "./jam.css";
 
 const TRACK_LABELS: Record<string, string> = {
   kick: "Kick",
-  snare: "Clap",
-  hat: "Hi-hat",
+  snare: "Snare",
+  hat: "Hat",
   bass: "Bass",
-  keys: "Chords",
+  keys: "Keys",
 };
 
 export function IdeaTray({
   ideas,
+  root,
+  scale,
   tracks,
   auditionId,
   editingId,
   draft,
   highlightId,
   playing,
+  busy = false,
   onAudition,
   onKeep,
   onToss,
@@ -40,12 +44,15 @@ export function IdeaTray({
   onTogglePlay,
 }: {
   ideas: IdeaData[];
+  root: string;
+  scale: string;
   tracks: TrackData[];
   auditionId: string | null;
   editingId: string | null;
   draft: PatchEntry[] | null;
   highlightId: string | null;
   playing: boolean;
+  busy?: boolean;
   onAudition: (id: string | null) => void;
   onKeep: (idea: IdeaData) => void;
   onToss: (idea: IdeaData) => void;
@@ -138,62 +145,6 @@ export function IdeaTray({
                   </p>
                 ) : null}
 
-                <div
-                  className="jam-idea__diff"
-                  aria-label={`${changedCells} changed cells in the preview`}
-                >
-                  <div className="jam-idea__diff-heading">
-                    <span>Before / after</span>
-                    <span>
-                      {changedCells} {changedCells === 1 ? "change" : "changes"}
-                    </span>
-                  </div>
-                  {previewRows.length ? (
-                    previewRows.map((row) => (
-                      <div
-                        className="jam-diff-row"
-                        key={`${row.track}:${row.bar}`}
-                      >
-                        <span className="jam-diff-row__name">
-                          {TRACK_LABELS[row.track]}
-                        </span>
-                        <span className="jam-diff-row__bar jam-mono">
-                          B{row.bar + 1}
-                        </span>
-                        <span
-                          className="jam-mini-comparison"
-                          aria-hidden="true"
-                        >
-                          {[row.before, row.after].map((values, phase) => (
-                            <span
-                              className="jam-diff-row__cells"
-                              key={phase}
-                              data-phase={phase === 0 ? "before" : "after"}
-                            >
-                              {values.map((value, i) => (
-                                <i
-                                  key={i}
-                                  data-on={
-                                    typeof value === "string" ||
-                                    (typeof value === "number" && value > 0) ||
-                                    undefined
-                                  }
-                                  data-changed={
-                                    (phase === 1 && row.changed.includes(i)) ||
-                                    undefined
-                                  }
-                                />
-                              ))}
-                            </span>
-                          ))}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <span className="jam-diff-empty">No cells changed.</span>
-                  )}
-                </div>
-
                 <div className="jam-idea__actions">
                   {editing ? (
                     <>
@@ -214,7 +165,7 @@ export function IdeaTray({
                       <button
                         type="button"
                         className="jam-idea__keep"
-                        disabled={changedCells === 0}
+                        disabled={busy || changedCells === 0}
                         onClick={() => onKeepEdited(idea)}
                       >
                         <IconCheck size={14} /> Use tweaked
@@ -234,7 +185,7 @@ export function IdeaTray({
                         className="jam-idea__audition"
                         data-active={auditioning ? "true" : undefined}
                         aria-pressed={auditioning}
-                        disabled={editingId !== null}
+                        disabled={busy || editingId !== null}
                         onClick={() => onAudition(auditioning ? null : idea.id)}
                       >
                         {auditioning ? (
@@ -247,7 +198,9 @@ export function IdeaTray({
                       <button
                         type="button"
                         className="jam-idea__keep"
-                        disabled={editingId !== null}
+                        disabled={
+                          busy || editingId !== null || changedCells === 0
+                        }
                         onClick={() => onKeep(idea)}
                       >
                         <IconCheck size={14} /> Use it
@@ -255,7 +208,7 @@ export function IdeaTray({
                       <button
                         type="button"
                         className="jam-idea__edit"
-                        disabled={editingId !== null}
+                        disabled={busy || editingId !== null}
                         onClick={() => onEdit(idea)}
                       >
                         <IconPencil size={12} /> Tweak
@@ -265,12 +218,98 @@ export function IdeaTray({
                         className="jam-idea__toss"
                         title="Skip idea"
                         aria-label={`Skip ${idea.label}`}
-                        disabled={editingId !== null}
+                        disabled={busy || editingId !== null}
                         onClick={() => onToss(idea)}
                       >
                         <IconX size={15} /> Skip
                       </button>
                     </>
+                  )}
+                </div>
+
+                <div
+                  className="jam-idea__diff"
+                  aria-label={`${changedCells} changed cells in the preview`}
+                >
+                  <div className="jam-idea__diff-heading">
+                    <span>Before / after</span>
+                    <span>
+                      {changedCells} {changedCells === 1 ? "change" : "changes"}
+                    </span>
+                  </div>
+                  {previewRows.length ? (
+                    <div
+                      className="jam-diff-rows"
+                      data-chords={
+                        previewRows.every((row) => row.track === "keys") ||
+                        undefined
+                      }
+                    >
+                      {previewRows.map((row) =>
+                        row.track === "keys" ? (
+                          <div
+                            className="jam-key-change"
+                            key={`keys:${row.bar}`}
+                          >
+                            <span>Bar {row.bar + 1}</span>
+                            <span>
+                              {typeof row.before[0] === "string"
+                                ? chordName(root, scale, row.before[0])
+                                : "—"}{" "}
+                              <b aria-hidden="true">→</b>{" "}
+                              <strong>
+                                {typeof row.after[0] === "string"
+                                  ? chordName(root, scale, row.after[0])
+                                  : "—"}
+                              </strong>
+                            </span>
+                          </div>
+                        ) : (
+                          <div
+                            className="jam-diff-row"
+                            key={`${row.track}:${row.bar}`}
+                          >
+                            <span className="jam-diff-row__name">
+                              {TRACK_LABELS[row.track]}
+                            </span>
+                            <span className="jam-diff-row__bar jam-mono">
+                              B{row.bar + 1}
+                            </span>
+                            <span
+                              className="jam-mini-comparison"
+                              aria-hidden="true"
+                            >
+                              {[row.before, row.after].map((values, phase) => (
+                                <span
+                                  className="jam-diff-row__cells"
+                                  key={phase}
+                                  data-phase={phase === 0 ? "before" : "after"}
+                                >
+                                  {values.map((value, i) => (
+                                    <i
+                                      key={i}
+                                      data-on={
+                                        typeof value === "string" ||
+                                        (typeof value === "number" &&
+                                          value > 0) ||
+                                        undefined
+                                      }
+                                      data-changed={
+                                        (phase === 1 &&
+                                          row.changed.includes(i)) ||
+                                        undefined
+                                      }
+                                    />
+                                  ))}
+                                </span>
+                              ))}
+                            </span>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  ) : (
+                    <span className="jam-diff-empty">No cells changed.</span>
                   )}
                 </div>
               </article>
