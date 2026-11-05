@@ -1,8 +1,9 @@
 # Jam Session
 
-An AI bandmate for when you're stuck on a loop. You and the agent edit the same
-step-grid: you click beats, it proposes ideas into a tray, and you audition,
-keep, or toss them. You stay the artist; it nudges.
+A sketchbook for music ideas, with a band in the margins. Tap squares to
+sketch a beat on your phone or laptop; three AI bandmates (Drummer, Bassist,
+Keys) sketch ideas next to yours. Listen, use, tweak or skip each one. Nothing
+goes into your sketch until you say so. When you're stuck, ask the band.
 
 Built with [Agent-Native](https://github.com/BuilderIO/agent-native) for the
 Builder.io Agent-Native Hackathon (Nov 2026).

@@ -1,48 +1,36 @@
-import { IconArrowUpRight, IconMinus, IconPlus } from "@tabler/icons-react";
 import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+  IconChevronLeft,
+  IconChevronRight,
+  IconCircle,
+  IconHandStop,
+  IconDisc,
+  IconWaveSine,
+  IconPiano,
+  IconMessageCircle,
+} from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
 
-import { Popover, PopoverAnchor } from "@/components/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { getJamEngine } from "@/lib/jam/audio";
 import {
-  STEPS_PER_BAR,
+  chordName,
+  chordChoices,
+  pageBars,
   TRACK_ORDER,
-  barLeft,
-  barWidth,
-  gridMetricsForWidth,
-  numeralChoices,
-  selectionBounds,
-  selectionFromCorners,
-  stepX,
   type BarCommentData,
-  type GridMetrics,
   type Selection,
-  type StepValue,
   type TrackData,
   type TrackKind,
 } from "@/lib/jam/grid";
 
-import { BarCommentPopover, BarCommentTrigger } from "./BarComments";
+import { BarCommentPopover } from "./BarComments";
 
 import "./jam.css";
-
-const ROW_H = 32;
-const ROW_PITCH = 44;
-const HEADER_H = 34;
-const ROW_LABELS: Record<TrackKind, string> = {
-  kick: "KICK",
-  snare: "SNARE",
-  hat: "HAT",
-  bass: "BASS",
-  keys: "KEYS",
-};
 
 export type SelectionAction =
   | "vary"
@@ -50,693 +38,558 @@ export type SelectionAction =
   | "simplify"
   | "darker"
   | "brighter";
-
-function rowTop(row: number): number {
-  return HEADER_H + row * ROW_PITCH;
-}
-
-const Cell = memo(function Cell({
-  kind,
-  row,
-  index,
-  value,
-  alt,
-  flash,
-  ghost,
-  onFocus,
-}: {
-  kind: TrackKind;
-  row: number;
-  index: number;
-  value: StepValue | undefined;
-  alt: boolean;
-  flash: boolean;
-  ghost: boolean;
-  onFocus?: () => void;
-}) {
-  const on = typeof value === "number" && value > 0;
-  const label =
-    kind === "bass"
-      ? `${ROW_LABELS[kind]} step ${index + 1}, ${on ? `scale degree ${value}` : "off"}`
-      : `${ROW_LABELS[kind]} step ${index + 1}, ${on ? "on" : "off"}`;
-
-  return (
-    <button
-      type="button"
-      className="jam-cell jam-mono"
-      data-cell
-      data-row={row}
-      data-index={index}
-      data-kind={kind}
-      data-on={on && !ghost ? "true" : undefined}
-      data-v={on && kind !== "bass" ? String(value) : undefined}
-      data-alt={alt ? "true" : undefined}
-      data-flash={flash ? "true" : undefined}
-      data-ghost={ghost ? "true" : undefined}
-      data-removed={ghost && !on ? "true" : undefined}
-      title={`${label}${kind === "bass" ? " · use the visible degree stepper, or scroll to transpose" : " · Shift-click changes velocity"}`}
-      aria-label={label}
-      aria-pressed={on}
-      onFocus={onFocus}
-      onPointerEnter={onFocus}
-    >
-      {kind === "bass" && on ? value : null}
-    </button>
-  );
-});
-
-const StepRow = memo(function StepRow({
-  kind,
-  row,
-  steps,
-  bars,
-  metrics,
-  flashing,
-  ghosts,
-  onFocusCell,
-}: {
-  kind: TrackKind;
-  row: number;
-  steps: StepValue[];
-  bars: number;
-  metrics: GridMetrics;
-  flashing: ReadonlySet<string>;
-  ghosts: ReadonlySet<string>;
-  onFocusCell?: (index: number) => void;
-}) {
-  const out = [];
-  for (let bar = 0; bar < bars; bar++) {
-    const groups = [];
-    for (let group = 0; group < 4; group++) {
-      const cells = [];
-      for (let cell = 0; cell < 4; cell++) {
-        const index = bar * STEPS_PER_BAR + group * 4 + cell;
-        const key = `${kind}:${index}`;
-        cells.push(
-          <Cell
-            key={index}
-            kind={kind}
-            row={row}
-            index={index}
-            value={steps[index]}
-            alt={group % 2 === 1}
-            flash={flashing.has(key)}
-            ghost={ghosts.has(key)}
-            {...(kind === "bass" && onFocusCell
-              ? { onFocus: () => onFocusCell(index) }
-              : {})}
-          />,
-        );
-      }
-      groups.push(
-        <span
-          className="jam-step-group"
-          key={group}
-          style={{
-            width: metrics.groupPitch,
-            gap: metrics.stepGap,
-            paddingRight: metrics.groupPadding,
-          }}
-        >
-          {cells}
-        </span>,
-      );
-    }
-    out.push(
-      <span
-        className="jam-bar"
-        key={bar}
-        style={{ width: metrics.groupPitch * 4, marginRight: metrics.barGap }}
-      >
-        {groups}
-      </span>,
-    );
-  }
-  return (
-    <div
-      className="jam-grid-row"
-      data-track-row={kind}
-      style={{ top: rowTop(row), height: ROW_H }}
-    >
-      {out}
-    </div>
-  );
-});
-
-const KeysRow = memo(function KeysRow({
-  steps,
-  bars,
-  metrics,
-  flashing,
-  ghosts,
-  choices,
-  onPickChord,
-}: {
-  steps: StepValue[];
-  bars: number;
-  metrics: GridMetrics;
-  flashing: ReadonlySet<string>;
-  ghosts: ReadonlySet<string>;
-  choices: string[];
-  onPickChord: (bar: number, numeral: string | null) => void;
-}) {
-  return (
-    <div
-      className="jam-grid-row jam-grid-row--keys"
-      data-track-row="keys"
-      style={{ top: rowTop(4), height: ROW_H }}
-    >
-      {Array.from({ length: bars }, (_, bar) => {
-        const value = steps[bar];
-        const key = `keys:${bar}`;
-        return (
-          <span
-            className="jam-bar"
-            key={bar}
-            style={{ width: barWidth(metrics), marginRight: metrics.barGap }}
-          >
-            <select
-              className="jam-chord-select jam-mono"
-              data-cell
-              data-direct-control
-              data-row="4"
-              data-index={bar}
-              data-ghost={ghosts.has(key) ? "true" : undefined}
-              data-flash={flashing.has(key) ? "true" : undefined}
-              data-on={typeof value === "string" ? "true" : undefined}
-              title={`Change chord for bar ${bar + 1}`}
-              aria-label={`Chord for bar ${bar + 1}: ${typeof value === "string" ? value : "off"}`}
-              value={typeof value === "string" ? value : ""}
-              onChange={(event) => onPickChord(bar, event.target.value || null)}
-            >
-              <option value="">Off</option>
-              {choices.map((numeral) => (
-                <option key={numeral} value={numeral}>
-                  {numeral}
-                </option>
-              ))}
-            </select>
-          </span>
-        );
-      })}
-    </div>
-  );
-});
-
-function Playhead({
-  scrollerRef,
-  follow,
-  metrics,
-}: {
-  scrollerRef: React.RefObject<HTMLDivElement | null>;
-  follow: boolean;
-  metrics: GridMetrics;
-}) {
-  const [step, setStep] = useState(-1);
-  useEffect(() => getJamEngine().onStep(setStep), []);
-  useEffect(() => {
-    const scroller = scrollerRef.current;
-    if (!follow || !scroller || step < 0 || step % STEPS_PER_BAR !== 0) return;
-    const x = stepX(step, metrics);
-    if (
-      x < scroller.scrollLeft ||
-      x > scroller.scrollLeft + scroller.clientWidth - metrics.barPitch
-    ) {
-      scroller.scrollTo({ left: Math.max(0, x - 8), behavior: "smooth" });
-    }
-  }, [step, scrollerRef, follow, metrics]);
-  if (step < 0) return null;
-  return (
-    <div
-      className="jam-playhead"
-      style={{
-        left: stepX(step, metrics),
-        height: 5 * ROW_PITCH,
-        width: metrics.cellW,
-      }}
-      aria-hidden="true"
-    />
-  );
-}
-
 export type GridProps = {
   tracks: TrackData[];
   bars: number;
+  root: string;
   scale: string;
   flashing: ReadonlySet<string>;
   ghosts: ReadonlySet<string>;
   selection: Selection | null;
   onSelect: (selection: Selection | null) => void;
+  page: number;
+  perPage: number;
+  onPage: (page: number) => void;
+  ideaBars: ReadonlySet<number>;
+  editing: boolean;
+  rangeOpen: boolean;
+  onRangeOpen: (open: boolean) => void;
   onDrumClick: (kind: TrackKind, index: number, shift: boolean) => void;
   onBassClick: (index: number) => void;
   onBassWheel: (index: number, delta: number) => void;
+  onLevelChange: (kind: TrackKind, index: number, delta: number) => void;
   onPickChord: (bar: number, numeral: string | null) => void;
-  onMenuAction: (action: SelectionAction) => void;
-  onAskBandmate: () => void;
-  menuBusy: boolean;
   comments: BarCommentData[];
   onAddComment: (bar: number, text: string) => Promise<void>;
   onSeeIdea: (ideaId: string) => void;
 };
+const LABELS = {
+  kick: "Kick",
+  snare: "Clap",
+  hat: "Hi-hat",
+  bass: "Bass",
+  keys: "Chords",
+};
+const ICONS = {
+  kick: IconCircle,
+  snare: IconHandStop,
+  hat: IconDisc,
+  bass: IconWaveSine,
+  keys: IconPiano,
+};
 
 export function Grid(props: GridProps) {
-  const { tracks, bars, selection, onSelect } = props;
-  const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const latest = useRef(props);
-  const [bassIndex, setBassIndex] = useState(0);
-  const [openComment, setOpenComment] = useState<{
-    bar: number;
-    anchor: HTMLElement;
+  const { tracks, bars, page, perPage, selection } = props;
+  const [noteBar, setNoteBar] = useState<number | null>(null);
+  const [chordBar, setChordBar] = useState<number | null>(null);
+  const [soundCell, setSoundCell] = useState<{
+    kind: TrackKind;
+    index: number;
   } | null>(null);
-  const [metrics, setMetrics] = useState(() =>
-    gridMetricsForWidth(Number.POSITIVE_INFINITY, bars),
-  );
-  latest.current = props;
-
-  const commentsByBar = useMemo(() => {
-    const byBar = new Map<number, BarCommentData[]>();
-    for (const comment of props.comments) {
-      const list = byBar.get(comment.bar) ?? [];
-      list.push(comment);
-      byBar.set(comment.bar, list);
-    }
-    return byBar;
-  }, [props.comments]);
-
-  const openComments = useCallback((bar: number, element: HTMLElement) => {
-    setOpenComment({ bar, anchor: element });
-  }, []);
-
-  useLayoutEffect(() => {
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const measure = () =>
-      setMetrics(gridMetricsForWidth(scroller.clientWidth, bars));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(scroller);
-    return () => observer.disconnect();
-  }, [bars]);
-
-  const trackByKind = (kind: TrackKind) =>
-    tracks.find((track) => track.kind === kind);
-  const bassValue = trackByKind("bass")?.steps[bassIndex];
-  const bassDegree =
-    typeof bassValue === "number" && bassValue > 0 ? bassValue : "-";
-
-  useEffect(() => {
-    const body = bodyRef.current;
-    if (!body) return;
-    let accumulator = 0;
-    const onWheel = (event: WheelEvent) => {
-      const cell = (event.target as HTMLElement | null)?.closest<HTMLElement>(
-        "[data-cell]",
-      );
-      if (
-        !cell ||
-        cell.dataset.row !== "3" ||
-        cell.dataset.directControl !== undefined
-      )
-        return;
-      event.preventDefault();
-      accumulator += event.deltaY;
-      if (Math.abs(accumulator) < 40) return;
-      const delta = accumulator < 0 ? 1 : -1;
-      accumulator = 0;
-      const index = Number(cell.dataset.index);
-      setBassIndex(index);
-      latest.current.onBassWheel(index, delta);
-    };
-    body.addEventListener("wheel", onWheel, { passive: false });
-    return () => body.removeEventListener("wheel", onWheel);
-  }, []);
-
-  const cellFromEvent = (target: EventTarget | null) => {
-    const element = (target as HTMLElement | null)?.closest<HTMLElement>(
-      "[data-cell]",
+  const [rangeStart, setRangeStart] = useState(page);
+  const [rangeEnd, setRangeEnd] = useState(page);
+  const [step, setStep] = useState(-1);
+  const press = useRef<{
+    x: number;
+    y: number;
+    timer: ReturnType<typeof setTimeout> | null;
+    held: boolean;
+  } | null>(null);
+  const suppressClick = useRef(false);
+  const visible = pageBars(page, bars, perPage);
+  const track = (kind: TrackKind) => tracks.find((t) => t.kind === kind);
+  const hasSound = (bar: number) =>
+    tracks.some((t) =>
+      (t.kind === "keys"
+        ? t.steps.slice(bar, bar + 1)
+        : t.steps.slice(bar * 16, (bar + 1) * 16)
+      ).some((v) => typeof v === "string" || (typeof v === "number" && v > 0)),
     );
-    if (!element) return null;
-    const row = Number(element.dataset.row);
-    const index = Number(element.dataset.index);
-    const bar = row === 4 ? index : Math.floor(index / STEPS_PER_BAR);
-    return { row, index, bar };
-  };
-
-  const onPointerDown = useCallback(
-    (event: React.PointerEvent) => {
-      if (event.button !== 0) return;
-      const target = event.target as HTMLElement;
-      if (
-        target.closest(
-          "[data-overlay], [data-bar-header], [data-direct-control]",
-        )
-      )
-        return;
-      const start = cellFromEvent(target);
-      if (!start) {
-        onSelect(null);
-        return;
-      }
-
-      const optionDrag = event.altKey;
-      let moved = false;
-      const move = (pointerEvent: PointerEvent) => {
-        const current = cellFromEvent(
-          document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY),
-        );
-        if (!current) return;
-        if (current.row !== start.row || current.bar !== start.bar)
-          moved = true;
-        if (moved) {
-          latest.current.onSelect(
-            optionDrag
-              ? {
-                  tracks: [...TRACK_ORDER],
-                  barStart: start.bar,
-                  barEnd: start.bar,
-                }
-              : selectionFromCorners(start, current),
-          );
-        }
-      };
-      const up = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-        if (moved) return;
-        const current = latest.current;
-        current.onSelect(null);
-        if (start.row <= 2) {
-          current.onDrumClick(
-            TRACK_ORDER[start.row]!,
-            start.index,
-            event.shiftKey,
-          );
-        } else if (start.row === 3) {
-          setBassIndex(start.index);
-          current.onBassClick(start.index);
-        }
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
+  useEffect(() => getJamEngine().onStep(setStep), []);
+  useEffect(
+    () => () => {
+      if (press.current?.timer) clearTimeout(press.current.timer);
     },
-    [onSelect],
+    [],
   );
-
-  const onGridKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    const target = event.target as HTMLElement;
-    if (target.closest("[data-direct-control]")) return;
-    const cell = cellFromEvent(target);
-    if (!cell) return;
-    event.preventDefault();
-    latest.current.onSelect(null);
-    if (cell.row <= 2) {
-      latest.current.onDrumClick(
-        TRACK_ORDER[cell.row]!,
-        cell.index,
-        event.shiftKey,
-      );
-    } else if (cell.row === 3) {
-      setBassIndex(cell.index);
-      latest.current.onBassClick(cell.index);
+  useEffect(() => {
+    if (props.rangeOpen) {
+      setRangeStart(selection?.barStart ?? page);
+      setRangeEnd(selection?.barEnd ?? page);
     }
-  };
+  }, [props.rangeOpen]);
 
-  const bodyWidth = metrics.bodyWidth;
-  const bodyHeight = HEADER_H + 5 * ROW_PITCH;
-  const rect = selection
-    ? (() => {
-        const firstRow = TRACK_ORDER.indexOf(selection.tracks[0]!);
-        const bounds = selectionBounds(
-          selection.barStart,
-          selection.barEnd,
-          metrics,
-        );
-        return {
-          left: bounds.left,
-          top: rowTop(firstRow) - 4,
-          width: bounds.width,
-          height: selection.tracks.length * ROW_PITCH - 2,
-        };
-      })()
-    : null;
-  const choices = numeralChoices(props.scale);
-  const selectedBars = selection
-    ? selection.barStart === selection.barEnd
-      ? `BAR ${selection.barStart + 1}`
-      : `BARS ${selection.barStart + 1}–${selection.barEnd + 1}`
-    : null;
+  const beginPress = (event: React.PointerEvent, held: () => void) => {
+    if (event.button !== 0) return;
+    suppressClick.current = false;
+    const current = {
+      x: event.clientX,
+      y: event.clientY,
+      timer: null as ReturnType<typeof setTimeout> | null,
+      held: false,
+    };
+    current.timer = setTimeout(() => {
+      current.held = true;
+      suppressClick.current = true;
+      held();
+    }, 500);
+    press.current = current;
+  };
+  const endPress = (event: React.PointerEvent, swipe = false) => {
+    const current = press.current;
+    if (!current) return;
+    if (current.timer) clearTimeout(current.timer);
+    const dx = event.clientX - current.x;
+    if (
+      swipe &&
+      !current.held &&
+      Math.abs(dx) > 40 &&
+      Math.abs(dx) > Math.abs(event.clientY - current.y)
+    ) {
+      suppressClick.current = true;
+      props.onPage(
+        Math.max(
+          0,
+          Math.min(
+            bars - 1,
+            page + (dx < 0 ? visible.length : -visible.length),
+          ),
+        ),
+      );
+    }
+    press.current = null;
+  };
+  const cancelPress = () => {
+    if (press.current?.timer) clearTimeout(press.current.timer);
+    press.current = null;
+    suppressClick.current = true;
+  };
+  const openRange = (bar: number) => {
+    props.onPage(bar);
+    setRangeStart(bar);
+    setRangeEnd(bar);
+    props.onRangeOpen(true);
+  };
+  const options = chordChoices(props.root, props.scale);
 
   return (
-    <Popover
-      open={openComment !== null}
-      onOpenChange={(open) => {
-        if (!open) setOpenComment(null);
-      }}
-    >
-      <div className="jam-grid-shell">
-        {selection ? (
-          <div
-            className="jam-selection-tools"
-            role="group"
-            aria-label="Actions for selected bars"
-            data-overlay
+    <div className="jam-sketch-grid">
+      <div className="jam-pager">
+        <div className="jam-pager__main">
+          <button
+            type="button"
+            className="jam-icon-button"
+            aria-label="Previous bar"
+            disabled={page === 0}
+            onClick={() =>
+              props.onPage(Math.max(0, page - (perPage === bars ? 1 : perPage)))
+            }
           >
-            <span className="jam-selection-tools__label">
-              <strong>{selectedBars}</strong>
-              <span>
-                {selection.tracks.map((track) => ROW_LABELS[track]).join(" · ")}
+            <IconChevronLeft size={20} />
+          </button>
+          <span aria-live="polite">
+            Bar <strong>{page + 1}</strong> of {bars}
+          </span>
+          <button
+            type="button"
+            className="jam-icon-button"
+            aria-label="Next bar"
+            disabled={page >= bars - 1}
+            onClick={() =>
+              props.onPage(
+                Math.min(bars - 1, page + (perPage === bars ? 1 : perPage)),
+              )
+            }
+          >
+            <IconChevronRight size={20} />
+          </button>
+          <button
+            type="button"
+            className="jam-icon-button jam-pager__note"
+            aria-label="Note on this bar"
+            onClick={() => setNoteBar(page)}
+          >
+            <IconMessageCircle size={20} />
+            {props.comments.some((c) => c.bar === page) && <i />}
+          </button>
+        </div>
+        <div className="jam-bar-dots" aria-label="Choose a bar">
+          {Array.from({ length: bars }, (_, bar) => (
+            <button
+              key={bar}
+              type="button"
+              aria-label={`Bar ${bar + 1}${hasSound(bar) ? ", has sound" : ", empty"}${props.ideaBars.has(bar) ? ", band idea" : ""}`}
+              aria-pressed={
+                !!selection &&
+                bar >= selection.barStart &&
+                bar <= selection.barEnd
+              }
+              className="jam-bar-dot"
+              data-current={bar === page || undefined}
+              data-sound={hasSound(bar) || undefined}
+              data-idea={props.ideaBars.has(bar) || undefined}
+              onPointerDown={(e) => beginPress(e, () => openRange(bar))}
+              onPointerMove={(e) => {
+                if (
+                  press.current &&
+                  Math.hypot(
+                    e.clientX - press.current.x,
+                    e.clientY - press.current.y,
+                  ) > 10
+                )
+                  cancelPress();
+              }}
+              onPointerUp={(e) => endPress(e)}
+              onPointerCancel={cancelPress}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openRange(bar);
+              }}
+              onClick={() => {
+                if (!suppressClick.current) props.onPage(bar);
+              }}
+            >
+              <i />
+            </button>
+          ))}
+        </div>
+        {selection && selection.barStart !== selection.barEnd && (
+          <button
+            type="button"
+            className="jam-range-summary"
+            onClick={() => props.onRangeOpen(true)}
+          >
+            Bars {selection.barStart + 1}–{selection.barEnd + 1} selected
+          </button>
+        )}
+      </div>
+      <div className="jam-grid-group-label">Drums</div>
+      <div
+        className="jam-page-grid"
+        style={{ "--visible-bars": visible.length } as React.CSSProperties}
+        role="group"
+        aria-label="Sketch squares"
+        onPointerUp={(e) => endPress(e, true)}
+        onPointerCancel={cancelPress}
+        onPointerMove={(e) => {
+          const current = press.current;
+          if (
+            current &&
+            Math.hypot(e.clientX - current.x, e.clientY - current.y) > 10 &&
+            current.timer
+          ) {
+            clearTimeout(current.timer);
+            current.timer = null;
+            suppressClick.current = true;
+          }
+        }}
+        onClickCapture={(e) => {
+          if (suppressClick.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            suppressClick.current = false;
+          }
+        }}
+      >
+        <div className="jam-page-grid__headers">
+          <span />
+          {visible.map((bar) => (
+            <button
+              key={bar}
+              type="button"
+              aria-label={`Select bar ${bar + 1}`}
+              aria-pressed={
+                !!selection &&
+                bar >= selection.barStart &&
+                bar <= selection.barEnd
+              }
+              onClick={(e) => {
+                if (e.shiftKey && selection)
+                  props.onSelect({
+                    tracks: [...TRACK_ORDER],
+                    barStart: Math.min(selection.barStart, bar),
+                    barEnd: Math.max(selection.barEnd, bar),
+                  });
+                else props.onPage(bar);
+              }}
+            >
+              Bar {bar + 1}
+            </button>
+          ))}
+        </div>
+        {TRACK_ORDER.map((kind) => {
+          const Icon = ICONS[kind];
+          return (
+            <div className="jam-page-row" key={kind} data-track-row={kind}>
+              <span
+                className="jam-page-label"
+                title={LABELS[kind]}
+                tabIndex={0}
+                aria-label={LABELS[kind]}
+              >
+                <Icon size={18} />
+                <span>{LABELS[kind]}</span>
               </span>
-            </span>
-            {(
-              [
-                ["vary", "Vary"],
-                ["fill", "Fill"],
-                ["simplify", "Simplify"],
-                ["darker", "Darker"],
-                ["brighter", "Brighter"],
-              ] as const
-            ).map(([action, label]) => (
-              <button
-                key={action}
-                type="button"
-                className="jam-tool-button"
-                disabled={props.menuBusy}
-                onClick={() => props.onMenuAction(action)}
-              >
-                {label}
-              </button>
-            ))}
-            <button
-              className="jam-tool-button jam-tool-button--agent"
-              type="button"
-              onClick={props.onAskBandmate}
-            >
-              Ask bandmate <IconArrowUpRight size={13} />
-            </button>
-            <button
-              className="jam-tool-button"
-              type="button"
-              title={`Comment on bar ${selection.barStart + 1}`}
-              onClick={(event) =>
-                openComments(selection.barStart, event.currentTarget)
-              }
-            >
-              Comment
-            </button>
-          </div>
-        ) : null}
-
-        <div className="jam-grid-layout">
-          <div
-            className="jam-grid-labels"
-            role="group"
-            aria-label="Track controls"
-          >
-            {TRACK_ORDER.map((kind, row) => (
-              <div
-                key={kind}
-                className="jam-track-label"
-                data-track={kind}
-                style={{ top: rowTop(row), height: ROW_H }}
-              >
-                {kind === "bass" ? (
-                  <>
-                    <span className="jam-track-label__name">BASS</span>
-                    <span
-                      className="jam-degree-control"
-                      role="group"
-                      aria-label={`Scale degree for step ${bassIndex + 1}`}
-                    >
-                      <button
-                        className="jam-degree-control__button"
-                        type="button"
-                        title="Lower selected bass degree"
-                        aria-label="Lower selected bass degree"
-                        onClick={() => props.onBassWheel(bassIndex, -1)}
-                      >
-                        <IconMinus size={11} />
-                      </button>
-                      <span className="jam-degree-control__value jam-mono">
-                        {bassDegree}
-                      </span>
-                      <button
-                        className="jam-degree-control__button"
-                        type="button"
-                        title="Raise selected bass degree"
-                        aria-label="Raise selected bass degree"
-                        onClick={() => props.onBassWheel(bassIndex, 1)}
-                      >
-                        <IconPlus size={11} />
-                      </button>
-                    </span>
-                  </>
-                ) : (
-                  <span className="jam-track-label__name">
-                    {ROW_LABELS[kind]}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-          <div
-            ref={scrollerRef}
-            className="jam-grid-scroll"
-            role="region"
-            aria-label="16-step loop grid"
-          >
-            <div
-              ref={bodyRef}
-              className="jam-grid-body"
-              role="group"
-              aria-label="Loop steps"
-              style={
-                {
-                  width: bodyWidth,
-                  height: bodyHeight,
-                  "--jam-cell-width": `${metrics.cellW}px`,
-                } as React.CSSProperties
-              }
-              onPointerDown={onPointerDown}
-              onKeyDown={onGridKeyDown}
-            >
-              {Array.from({ length: bars }, (_, bar) => {
-                const isSelected = Boolean(
-                  selection &&
-                  bar >= selection.barStart &&
-                  bar <= selection.barEnd,
-                );
-                return (
-                  <span
+              {visible.map((bar) =>
+                kind === "keys" ? (
+                  <button
+                    type="button"
                     key={bar}
-                    className="jam-bar-head"
-                    data-bar-header
-                    style={{
-                      left: barLeft(bar, metrics),
-                      width: barWidth(metrics),
-                      height: HEADER_H - 5,
-                    }}
+                    className="jam-chord-chip"
+                    data-cell
+                    data-kind="keys"
+                    data-index={bar}
+                    data-ghost={props.ghosts.has(`keys:${bar}`) || undefined}
+                    data-flash={props.flashing.has(`keys:${bar}`) || undefined}
+                    disabled={props.editing && !props.ghosts.has(`keys:${bar}`)}
+                    aria-label={`Chord for bar ${bar + 1}`}
+                    onClick={() => setChordBar(bar)}
                   >
+                    {typeof track(kind)?.steps[bar] === "string"
+                      ? chordName(
+                          props.root,
+                          props.scale,
+                          track(kind)!.steps[bar] as string,
+                        )
+                      : "+ Chord"}
+                  </button>
+                ) : (
+                  <div key={bar} className="jam-page-bar">
+                    {Array.from({ length: 4 }, (_, group) => (
+                      <div className="jam-page-beat" key={group}>
+                        {Array.from({ length: 4 }, (_, cell) => {
+                          const index = bar * 16 + group * 4 + cell;
+                          const value = track(kind)?.steps[index];
+                          const on = typeof value === "number" && value > 0;
+                          const key = `${kind}:${index}`;
+                          return (
+                            <button
+                              key={index}
+                              type="button"
+                              className="jam-cell"
+                              data-cell
+                              data-kind={kind}
+                              data-index={index}
+                              data-on={on || undefined}
+                              data-v={on ? value : undefined}
+                              data-ghost={props.ghosts.has(key) || undefined}
+                              data-flash={props.flashing.has(key) || undefined}
+                              data-playhead={step === index || undefined}
+                              disabled={props.editing && !props.ghosts.has(key)}
+                              aria-label={`${LABELS[kind]} bar ${bar + 1} square ${group * 4 + cell + 1}, ${on ? "on" : "off"}`}
+                              aria-pressed={on}
+                              onPointerDown={(e) => {
+                                e.currentTarget.setPointerCapture(e.pointerId);
+                                beginPress(e, () =>
+                                  setSoundCell({ kind, index }),
+                                );
+                              }}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                setSoundCell({ kind, index });
+                              }}
+                              onClick={(e) =>
+                                kind === "bass"
+                                  ? props.onBassClick(index)
+                                  : props.onDrumClick(kind, index, e.shiftKey)
+                              }
+                            />
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                ),
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="jam-grid-legend">
+        <span>
+          <i className="jam-legend-dot jam-legend-dot--you" />
+          You
+        </span>
+        <span>
+          <i className="jam-legend-dot jam-legend-dot--agent" />
+          The band
+        </span>
+        <span className="jam-grid-legend__hint">
+          Hold a square to shape its sound
+        </span>
+      </div>
+      <Sheet
+        open={chordBar !== null}
+        onOpenChange={(open) => {
+          if (!open) setChordBar(null);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="jam-root jam-bottom-sheet jam-chord-sheet"
+        >
+          <SheetTitle>Choose a chord</SheetTitle>
+          <SheetDescription>For bar {(chordBar ?? 0) + 1}</SheetDescription>
+          {["Sad", "Bright", "Tense"].map((group) => (
+            <section key={group}>
+              <h3>{group}</h3>
+              <div className="jam-chord-options">
+                {options
+                  .filter((o) => o.group === group)
+                  .map((option) => (
                     <button
                       type="button"
-                      className="jam-bar-tab jam-mono"
-                      data-selected={isSelected ? "true" : undefined}
-                      aria-pressed={isSelected}
-                      aria-label={`Select bar ${bar + 1} across all tracks`}
-                      onClick={(event) => {
-                        const current = latest.current.selection;
-                        const barStart =
-                          event.shiftKey && current
-                            ? Math.min(current.barStart, bar)
-                            : bar;
-                        const barEnd =
-                          event.shiftKey && current
-                            ? Math.max(current.barEnd, bar)
-                            : bar;
-                        onSelect({
-                          tracks: [...TRACK_ORDER],
-                          barStart,
-                          barEnd,
-                        });
+                      className="jam-btn"
+                      key={option.numeral}
+                      aria-pressed={
+                        track("keys")?.steps[chordBar ?? 0] === option.numeral
+                      }
+                      onClick={() => {
+                        if (chordBar !== null)
+                          props.onPickChord(chordBar, option.numeral);
+                        setChordBar(null);
                       }}
                     >
-                      <span>{String(bar + 1).padStart(2, "0")}</span>
-                      <i />
+                      {option.name}
                     </button>
-                    <BarCommentTrigger
-                      bar={bar}
-                      comments={commentsByBar.get(bar) ?? []}
-                      onOpen={(element) => openComments(bar, element)}
-                    />
-                  </span>
-                );
-              })}
-              {(["kick", "snare", "hat", "bass"] as const).map((kind, row) => (
-                <StepRow
-                  key={kind}
-                  kind={kind}
-                  row={row}
-                  steps={trackByKind(kind)?.steps ?? []}
-                  bars={bars}
-                  metrics={metrics}
-                  flashing={props.flashing}
-                  ghosts={props.ghosts}
-                  {...(kind === "bass" ? { onFocusCell: setBassIndex } : {})}
-                />
-              ))}
-              <KeysRow
-                steps={trackByKind("keys")?.steps ?? []}
-                bars={bars}
-                metrics={metrics}
-                flashing={props.flashing}
-                ghosts={props.ghosts}
-                choices={choices}
-                onPickChord={props.onPickChord}
-              />
-              <Playhead
-                scrollerRef={scrollerRef}
-                follow={!selection}
-                metrics={metrics}
-              />
-              {rect ? (
-                <div
-                  className="jam-select-rect"
-                  style={rect}
-                  aria-hidden="true"
-                />
-              ) : null}
-            </div>
+                  ))}
+              </div>
+            </section>
+          ))}
+          <button
+            type="button"
+            className="jam-text-button"
+            onClick={() => {
+              if (chordBar !== null) props.onPickChord(chordBar, null);
+              setChordBar(null);
+            }}
+          >
+            No chord
+          </button>
+        </SheetContent>
+      </Sheet>
+      <Sheet
+        open={soundCell !== null}
+        onOpenChange={(open) => {
+          if (!open) setSoundCell(null);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="jam-root jam-bottom-sheet jam-cell-sheet"
+        >
+          <SheetTitle>
+            {soundCell ? LABELS[soundCell.kind] : "Sound"}
+          </SheetTitle>
+          <SheetDescription>Shape this square</SheetDescription>
+          <div className="jam-cell-options">
+            {[-1, 1].map((delta) => (
+              <button
+                type="button"
+                className="jam-btn"
+                key={delta}
+                onClick={() => {
+                  if (!soundCell) return;
+                  if (soundCell.kind === "bass")
+                    props.onBassWheel(soundCell.index, delta);
+                  else
+                    props.onLevelChange(soundCell.kind, soundCell.index, delta);
+                }}
+              >
+                {soundCell?.kind === "bass"
+                  ? delta < 0
+                    ? "Lower"
+                    : "Higher"
+                  : delta < 0
+                    ? "Softer"
+                    : "Louder"}
+              </button>
+            ))}
           </div>
-        </div>
-        <div className="jam-grid-legend">
-          <span>
-            <i className="jam-legend-dot jam-legend-dot--you" /> YOU
-          </span>
-          <span>
-            <i className="jam-legend-dot jam-legend-dot--agent" /> BANDMATE
-          </span>
-          <span className="jam-grid-legend__hint">
-            Shift-click cycles velocity · Scroll bass to transpose · chord
-            selector edits harmony
-          </span>
-        </div>
-
-        {openComment ? (
-          <>
-            <PopoverAnchor virtualRef={{ current: openComment.anchor }} />
+        </SheetContent>
+      </Sheet>
+      <Sheet open={props.rangeOpen} onOpenChange={props.onRangeOpen}>
+        <SheetContent side="bottom" className="jam-root jam-bottom-sheet">
+          <SheetTitle>Select bars</SheetTitle>
+          <SheetDescription>
+            The band will work on these bars, across every sound.
+          </SheetDescription>
+          <div className="jam-range-pickers">
+            <label>
+              From
+              <select
+                aria-label="First bar"
+                value={rangeStart}
+                onChange={(e) => setRangeStart(Number(e.target.value))}
+              >
+                {Array.from({ length: bars }, (_, bar) => (
+                  <option key={bar} value={bar}>
+                    Bar {bar + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              To
+              <select
+                aria-label="Last bar"
+                value={rangeEnd}
+                onChange={(e) => setRangeEnd(Number(e.target.value))}
+              >
+                {Array.from({ length: bars }, (_, bar) => (
+                  <option key={bar} value={bar}>
+                    Bar {bar + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <button
+            type="button"
+            className="jam-primary"
+            onClick={() => {
+              props.onPage(Math.min(rangeStart, rangeEnd));
+              props.onSelect({
+                tracks: [...TRACK_ORDER],
+                barStart: Math.min(rangeStart, rangeEnd),
+                barEnd: Math.max(rangeStart, rangeEnd),
+              });
+              props.onRangeOpen(false);
+            }}
+          >
+            Select bars
+          </button>
+        </SheetContent>
+      </Sheet>
+      <Sheet
+        open={noteBar !== null}
+        onOpenChange={(open) => {
+          if (!open) setNoteBar(null);
+        }}
+      >
+        <SheetContent
+          side="bottom"
+          className="jam-root jam-bottom-sheet jam-note-sheet"
+          showClose={false}
+        >
+          <SheetTitle className="sr-only">
+            Note on bar {(noteBar ?? 0) + 1}
+          </SheetTitle>
+          <SheetDescription className="sr-only">
+            Leave a note for a bandmate.
+          </SheetDescription>
+          {noteBar !== null && (
             <BarCommentPopover
-              key={openComment.bar}
-              bar={openComment.bar}
-              comments={commentsByBar.get(openComment.bar) ?? []}
-              anchor={openComment.anchor}
-              onClose={() => setOpenComment(null)}
+              key={noteBar}
+              bar={noteBar}
+              comments={props.comments.filter((c) => c.bar === noteBar)}
+              onClose={() => setNoteBar(null)}
               onSubmit={props.onAddComment}
               onSeeIdea={props.onSeeIdea}
             />
-          </>
-        ) : null}
-      </div>
-    </Popover>
+          )}
+        </SheetContent>
+      </Sheet>
+    </div>
   );
 }

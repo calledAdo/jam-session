@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   activeStepRatio,
+  chordName,
+  chordChoices,
+  pageBars,
   barLeft,
   barWidth,
   cycleDraftDrum,
@@ -184,5 +187,35 @@ describe("responsive grid metrics", () => {
     expect(metrics.cellW).toBe(18);
     expect(metrics.barPitch).toBe(348);
     expect(metrics.bodyWidth).toBe(2784);
+  });
+});
+
+describe("sketchbook presentation", () => {
+  it("shows the actual sounding chords without changing saved numerals", () => {
+    expect(chordName("C", "minor", "i")).toBe("Cm");
+    expect(chordName("C", "minor", "VI")).toBe("A♭");
+    expect(chordName("D", "major", "V")).toBe("A");
+    expect(chordName("C", "major", "vii°")).toBe("Bdim");
+    expect(chordName("C", "dorian", "IV")).toBe("F");
+    expect(chordName("C", "pentatonic minor", "VI")).toBe("A♭");
+    expect(chordName("C", "minor", "bad input")).toBe("Chord");
+  });
+  it("groups the picker by the actual chord quality", () => {
+    expect(chordChoices("C", "minor")).toEqual(
+      expect.arrayContaining([
+        { numeral: "i", name: "Cm", group: "Sad" },
+        { numeral: "VI", name: "A♭", group: "Bright" },
+        { numeral: "ii°", name: "Ddim", group: "Tense" },
+      ]),
+    );
+  });
+  it("pages at phone, tablet and desktop sizes without losing the absolute bar", () => {
+    expect(pageBars(3, 8, 1)).toEqual([3]);
+    expect(pageBars(3, 8, 2)).toEqual([2, 3]);
+    expect(pageBars(7, 8, 8)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(pageBars(4, 5, 2)).toEqual([4]);
+    expect(pageBars(99, 8, 1)).toEqual([7]);
+    expect(pageBars(-1, 8, 1)).toEqual([0]);
+    expect(pageBars(0, 0, 1)).toEqual([]);
   });
 });

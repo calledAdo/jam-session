@@ -409,14 +409,14 @@ export function Sidebar({
       >
         <Link
           to="/home"
-          aria-label={collapsed ? "Jams" : undefined}
+          aria-label={collapsed ? "Your sketches" : undefined}
           className={cn(
             "mx-2 flex h-9 items-center gap-2 rounded-md px-2 text-sm text-sidebar-foreground outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-sidebar-ring",
             collapsed && "mx-0 w-9 justify-center px-0",
           )}
         >
           <IconHome className="size-4 shrink-0" strokeWidth={1.8} />
-          {!collapsed ? <span>Jams</span> : null}
+          {!collapsed ? <span>Your sketches</span> : null}
         </Link>
         <ChatThreadsSection collapsed={collapsed} />
       </nav>
