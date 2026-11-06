@@ -21,9 +21,13 @@ export const SESSION_SCALES = [
 
 export type SessionScale = (typeof SESSION_SCALES)[number];
 
-export const SESSION_SEEDS = ["lofi", "house", "empty"] as const;
+export { SEED_STYLES as SESSION_SEEDS } from "../music/seed.js";
+import type { SeedStyle } from "../music/seed.js";
 
-export type SessionSeed = (typeof SESSION_SEEDS)[number];
+export const SESSION_KITS = ["dusty", "boombap", "808", "clean"] as const;
+export type SessionKit = (typeof SESSION_KITS)[number];
+
+export type SessionSeed = SeedStyle;
 
 export const IDEA_AUTHORS = [
   "Drummer",

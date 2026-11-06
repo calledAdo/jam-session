@@ -4,9 +4,12 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import * as schema from "../db/schema.js";
 import type { DbHandle } from "../db/transaction.js";
+import { SEED_DEFAULTS } from "../music/seed.js";
 import { seedSession } from "../music/index.js";
 import {
   REPLY_AUTHORS,
+  SESSION_KITS,
+  type SessionKit,
   TRACK_KINDS,
   type IdeaStatus,
   type PatchEntry,
@@ -200,6 +203,7 @@ export type CreateSessionInput = {
   root?: string | undefined;
   scale?: string | undefined;
   swing?: number | undefined;
+  kit?: SessionKit | undefined;
   bars?: number | undefined;
   seed?: SessionSeed | undefined;
 };
@@ -212,11 +216,14 @@ export async function createSession(
   if (!Number.isInteger(bars) || bars < 1 || bars > 16) {
     inputError("bars must be an integer from 1 to 16.");
   }
-  const bpm = input.bpm ?? 90;
+  const defaults = SEED_DEFAULTS[input.seed ?? "lofi"];
+  const kit = input.kit ?? defaults.kit;
+  if (!SESSION_KITS.includes(kit)) inputError("Unknown sound kit.");
+  const bpm = input.bpm ?? defaults.bpm;
   if (!Number.isInteger(bpm) || bpm < 40 || bpm > 240) {
     inputError("bpm must be an integer from 40 to 240.");
   }
-  const swing = input.swing ?? 0;
+  const swing = input.swing ?? defaults.swing;
   if (!Number.isFinite(swing) || swing < 0 || swing > 1) {
     inputError("swing must be a number from 0 to 1.");
   }
@@ -224,11 +231,11 @@ export async function createSession(
   const sessionId = newId();
   const createdAt = nowIso();
   const name = input.name?.trim() || "Untitled jam";
-  const root = input.root?.trim() || "C";
-  const scale = input.scale?.trim() || "minor";
+  const root = input.root?.trim() || defaults.root;
+  const scale = input.scale?.trim() || defaults.scale;
 
   // T01's pure seed library builds deterministic patterns; "empty" is a
-  // fully blank grid and lofi/house start from a playable loop.
+  // fully blank grid and each other vibe starts from a playable loop.
   const pattern = seedSession(input.seed ?? "lofi", bars);
 
   await db.transaction(async (tx) => {
@@ -239,6 +246,7 @@ export async function createSession(
       root,
       scale,
       swing,
+      kit,
       bars,
       createdAt,
     });
@@ -261,6 +269,7 @@ export type UpdateTransportInput = {
   root?: string | undefined;
   scale?: string | undefined;
   swing?: number | undefined;
+  kit?: SessionKit | undefined;
 };
 
 export async function updateTransport(
@@ -272,9 +281,10 @@ export async function updateTransport(
     input.bpm === undefined &&
     input.root === undefined &&
     input.scale === undefined &&
-    input.swing === undefined
+    input.swing === undefined &&
+    input.kit === undefined
   ) {
-    inputError("Provide at least one of bpm, root, scale, or swing.");
+    inputError("Provide at least one of bpm, root, scale, swing, or kit.");
   }
 
   const patch: Partial<typeof schema.sessions.$inferInsert> = {};
@@ -301,6 +311,11 @@ export async function updateTransport(
       inputError("swing must be a number from 0 to 1.");
     }
     patch.swing = input.swing;
+  }
+
+  if (input.kit !== undefined) {
+    if (!SESSION_KITS.includes(input.kit)) inputError("Unknown sound kit.");
+    patch.kit = input.kit;
   }
 
   await requireSession(sessionId, db);

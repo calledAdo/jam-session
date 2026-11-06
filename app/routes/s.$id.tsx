@@ -23,9 +23,9 @@ export default function SessionRoute() {
         data-jam-embed
         className="fixed inset-0 z-50 overflow-auto bg-background text-foreground"
       >
-        <SessionView sessionId={id} />
+        <SessionView key={id} sessionId={id} />
       </div>
     );
   }
-  return <SessionView sessionId={id} />;
+  return <SessionView key={id} sessionId={id} />;
 }

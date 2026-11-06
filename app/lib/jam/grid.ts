@@ -1,5 +1,9 @@
 /** Pure grid helpers shared by the Jam Session UI and its audio engine. */
-import { noteToMidi, romanToChord } from "../../../server/music/notes";
+import {
+  degreeToNote,
+  noteToMidi,
+  romanToChord,
+} from "../../../server/music/notes";
 
 export const TRACK_ORDER = ["kick", "snare", "hat", "bass", "keys"] as const;
 export type TrackKind = (typeof TRACK_ORDER)[number];
@@ -26,6 +30,7 @@ export type SessionData = {
     root: string;
     scale: string;
     swing: number;
+    kit: import("../../../server/sessions/types").SessionKit;
     bars: number;
   };
   tracks: TrackData[];
@@ -570,4 +575,42 @@ export function stepX(step: number, metrics = DEFAULT_GRID_METRICS): number {
     group * metrics.groupPitch +
     (inBar % 4) * metrics.cellPitch
   );
+}
+
+/** Human note name for the scale degree the engine actually plays. */
+export function bassNoteName(
+  root: string,
+  scale: string,
+  value: StepValue,
+): string {
+  if (typeof value !== "number" || value <= 0 || !Number.isInteger(value))
+    return "—";
+  try {
+    return degreeToNote(root, scale, value, 2).replace(/-?\d+$/, "");
+  } catch {
+    return "—";
+  }
+}
+
+/** Keyboard navigation stays inside one 16-step bar. */
+export function adjacentStep(
+  step: number,
+  key: string,
+  phone: boolean,
+): number {
+  const delta =
+    key === "ArrowRight"
+      ? 1
+      : key === "ArrowLeft"
+        ? -1
+        : key === "ArrowDown"
+          ? phone
+            ? 4
+            : 0
+          : key === "ArrowUp"
+            ? phone
+              ? -4
+              : 0
+            : 0;
+  return Math.max(0, Math.min(15, step + delta));
 }

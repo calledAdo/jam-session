@@ -91,7 +91,7 @@ export function HistoryDrawer({
     revertM.mutate(
       { sessionId, editId },
       {
-        onSuccess: () => setMessage("Sketch restored to this edit."),
+        onSuccess: () => setMessage("Grid restored to this edit."),
         onError: (cause: unknown) =>
           setMessage(
             cause instanceof Error ? cause.message : "Could not restore edit.",
@@ -110,9 +110,9 @@ export function HistoryDrawer({
       >
         <header className="flex items-center justify-between border-b border-[var(--jam-line)] px-5 py-4">
           <div>
-            <SheetTitle className="text-sm">Edit history</SheetTitle>
-            <SheetDescription className="sr-only">
-              Applied edits for this jam session, newest first.
+            <SheetTitle className="text-sm">Grid history</SheetTitle>
+            <SheetDescription className="text-xs text-[var(--jam-dim)]">
+              Grid edits only. Speed, kit, notes, and taste stay as they are.
             </SheetDescription>
           </div>
           <button
@@ -180,7 +180,7 @@ export function HistoryDrawer({
                     >
                       {revertingId === edit.id
                         ? "Restoring..."
-                        : "Revert to here"}
+                        : "Restore here"}
                     </button>
                   </li>
                 );

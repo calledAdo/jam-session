@@ -12,6 +12,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
+import { KIT_DEFINITIONS } from "@/lib/jam/audio";
+import { SESSION_KITS, type SessionKit } from "../../../server/sessions/types";
+
 import "./jam.css";
 
 export type TransportBarProps = {
@@ -19,10 +22,17 @@ export type TransportBarProps = {
   root: string;
   scale: string;
   swing: number;
+  kit: SessionKit;
   playing: boolean;
   onTogglePlay: () => void;
   onChange: (
-    patch: Partial<{ bpm: number; root: string; scale: string; swing: number }>,
+    patch: Partial<{
+      bpm: number;
+      root: string;
+      scale: string;
+      swing: number;
+      kit: SessionKit;
+    }>,
   ) => void;
   soundOpen: boolean;
   onSoundOpen: (open: boolean) => void;
@@ -36,10 +46,31 @@ export function SoundControls({
   root,
   scale,
   swing,
+  kit,
   onChange,
-}: Pick<TransportBarProps, "bpm" | "root" | "scale" | "swing" | "onChange">) {
+}: Pick<
+  TransportBarProps,
+  "bpm" | "root" | "scale" | "swing" | "kit" | "onChange"
+>) {
   return (
     <div className="jam-sound-controls">
+      <fieldset className="jam-kit">
+        <legend>Kit</legend>
+        <div className="jam-kit__chips">
+          {SESSION_KITS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={kit === id}
+              title={KIT_DEFINITIONS[id].description}
+              onClick={() => onChange({ kit: id })}
+            >
+              <strong>{KIT_DEFINITIONS[id].label}</strong>
+              <span>{KIT_DEFINITIONS[id].description}</span>
+            </button>
+          ))}
+        </div>
+      </fieldset>
       <label className="jam-sound-field">
         Speed <small>· {bpm}</small>
         <input

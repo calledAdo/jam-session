@@ -34,3 +34,14 @@ Rules learned the hard way:
 - `appAction(name, params)` POSTs `/_agent-native/actions/<name>`; for other params swap the action and args (e.g. `update-transport` `{sessionId, swing}`).
 - Swap `track`/label for snare or kick; for swing use `update-transport` with `swing` 0–1.
 - Reference implementation: `app/components/jam/controls/hat-energy.ts` (also seeded on first run by `ControlsStrip`).
+
+## Kits and describe-to-start
+
+Vibes: `lofi`, `boombap` (Hip-hop), `trap`, `house`, `empty`. Kits: `dusty`, `boombap`, `808`, `clean`. “Make it more trap” / “change the drums to 808” means `update-transport` with `{sessionId, kit:"808"}`; propose pattern changes separately. A kit control uses this same action and never generates notes or restarts the loop.
+
+For a new-sketch description (the “Or describe it…” entry point):
+1. `view-screen` first; treat the description as intent to create a NEW sketch.
+2. Choose the closest vibe and kit. Call `create-session` with `seed`, `kit`, and a short `name`. Omit transport values unless the user specified them so the vibe's defaults apply.
+3. Read `get-session` and `get-taste`. Use read-only generators (`vary-pattern`, `add-fill`, `transform`, `progression-patch`) to make three distinct ideas that change the seeded grid. Empty starters need progression-patch or add-fill to produce a real change.
+4. `propose-ideas` with the right bandmate authors. Do not keep/apply ideas.
+5. Verify the saved session and ideas with `get-session`, then `navigate` with `{path:"/s/<created session id>"}` (the action accepts `path`, not `sessionId`). Tell the artist what feel you chose in one sentence. Leave playback stopped.

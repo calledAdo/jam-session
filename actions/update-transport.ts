@@ -4,6 +4,7 @@ import { z } from "zod";
 import { updateTransport } from "../server/sessions/store.js";
 import {
   bpmSchema,
+  kitSchema,
   rootSchema,
   scaleSchema,
   swingSchema,
@@ -11,17 +12,22 @@ import {
 
 export default defineAction({
   description:
-    "Change a session's transport: BPM, root note, scale, and/or swing. Changes are audible from the next bar, so the loop keeps running.",
+    "Change a session's transport: BPM, root note, scale, swing, and/or sound kit (dusty, boombap, 808, clean). Kit changes preserve every grid cell. Changes are audible from the next bar, so the loop keeps running.",
   schema: z
     .object({
       id: z.string().min(1).optional().describe("Session id."),
       // Every other jam action names this `sessionId`; generated controls
       // and the agent use that spelling, so accept it here too.
-      sessionId: z.string().min(1).optional().describe("Session id (alias of id)."),
+      sessionId: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Session id (alias of id)."),
       bpm: bpmSchema.optional(),
       root: rootSchema.optional(),
       scale: scaleSchema.optional(),
       swing: swingSchema.optional(),
+      kit: kitSchema.optional(),
     })
     .refine((input) => input.id ?? input.sessionId, {
       message: "Provide the session id as `sessionId` (or `id`).",

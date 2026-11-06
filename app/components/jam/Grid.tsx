@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/sheet";
 import { getJamEngine } from "@/lib/jam/audio";
 import {
+  adjacentStep,
+  bassNoteName,
   chordName,
   chordChoices,
   pageBars,
@@ -39,6 +41,9 @@ export type SelectionAction =
   | "darker"
   | "brighter";
 export type GridProps = {
+  activePart: TrackKind;
+  onActivePart: (part: TrackKind) => void;
+  notesOpen: boolean;
   tracks: TrackData[];
   bars: number;
   root: string;
@@ -65,10 +70,10 @@ export type GridProps = {
 };
 const LABELS = {
   kick: "Kick",
-  snare: "Clap",
-  hat: "Hi-hat",
+  snare: "Snare",
+  hat: "Hat",
   bass: "Bass",
-  keys: "Chords",
+  keys: "Keys",
 };
 const ICONS = {
   kick: IconCircle,
@@ -88,6 +93,7 @@ export function Grid(props: GridProps) {
   } | null>(null);
   const [rangeStart, setRangeStart] = useState(page);
   const [rangeEnd, setRangeEnd] = useState(page);
+  const [rangeTracks, setRangeTracks] = useState<TrackKind[]>([...TRACK_ORDER]);
   const [step, setStep] = useState(-1);
   const press = useRef<{
     x: number;
@@ -116,6 +122,7 @@ export function Grid(props: GridProps) {
     if (props.rangeOpen) {
       setRangeStart(selection?.barStart ?? page);
       setRangeEnd(selection?.barEnd ?? page);
+      setRangeTracks(selection?.tracks ?? [...TRACK_ORDER]);
     }
   }, [props.rangeOpen]);
 
@@ -245,11 +252,28 @@ export function Grid(props: GridProps) {
                 e.preventDefault();
                 openRange(bar);
               }}
-              onClick={() => {
-                if (!suppressClick.current) props.onPage(bar);
+              onClick={(event) => {
+                if (suppressClick.current) return;
+                if (event.shiftKey && selection)
+                  props.onSelect({
+                    ...selection,
+                    barStart: Math.min(selection.barStart, bar),
+                    barEnd: Math.max(selection.barEnd, bar),
+                  });
+                else props.onPage(bar);
               }}
             >
-              <i />
+              <span>{bar + 1}</span>
+              <strong>
+                {typeof track("keys")?.steps[bar] === "string"
+                  ? chordName(
+                      props.root,
+                      props.scale,
+                      track("keys")!.steps[bar] as string,
+                    )
+                  : "—"}
+              </strong>
+              {props.comments.some((c) => c.bar === bar) && <small>Note</small>}
             </button>
           ))}
         </div>
@@ -263,7 +287,65 @@ export function Grid(props: GridProps) {
           </button>
         )}
       </div>
-      <div className="jam-grid-group-label">Drums</div>
+      <div className="jam-editor-heading">
+        <h2>Bar {page + 1}</h2>
+        <button
+          className="jam-text-button"
+          onClick={() => props.onRangeOpen(true)}
+        >
+          {selection && selection.barStart !== selection.barEnd
+            ? `Bars ${selection.barStart + 1}–${selection.barEnd + 1}`
+            : "Select bars"}{" "}
+          ·{" "}
+          {selection?.tracks.length === 5
+            ? "All parts"
+            : selection?.tracks.map((k) => LABELS[k]).join(", ")}
+        </button>
+      </div>
+      <div
+        className="jam-groove-mini"
+        role="img"
+        aria-label={`All five parts, bar ${page + 1}`}
+      >
+        {TRACK_ORDER.map((kind) => (
+          <div key={kind}>
+            <span>{LABELS[kind]}</span>
+            <div>
+              {(kind === "keys"
+                ? [track(kind)?.steps[page]]
+                : (track(kind)?.steps.slice(page * 16, page * 16 + 16) ??
+                  Array(16).fill(0))
+              ).map((v, i) => (
+                <i
+                  key={i}
+                  data-on={
+                    typeof v === "string" ||
+                    (typeof v === "number" && v > 0) ||
+                    undefined
+                  }
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="jam-part-tabs" role="group" aria-label="Instrument">
+        {TRACK_ORDER.map((kind) => (
+          <button
+            key={kind}
+            aria-pressed={props.activePart === kind}
+            onClick={() => props.onActivePart(kind)}
+          >
+            {LABELS[kind]}
+          </button>
+        ))}
+      </div>
+      <div className="jam-beat-headings" aria-hidden="true">
+        <span />
+        {[1, 2, 3, 4].map((n) => (
+          <span key={n}>Beat {n}</span>
+        ))}
+      </div>
       <div
         className="jam-page-grid"
         style={{ "--visible-bars": visible.length } as React.CSSProperties}
@@ -320,7 +402,12 @@ export function Grid(props: GridProps) {
         {TRACK_ORDER.map((kind) => {
           const Icon = ICONS[kind];
           return (
-            <div className="jam-page-row" key={kind} data-track-row={kind}>
+            <div
+              className="jam-page-row"
+              key={kind}
+              data-track-row={kind}
+              data-active={props.activePart === kind}
+            >
               <span
                 className="jam-page-label"
                 title={LABELS[kind]}
@@ -357,6 +444,7 @@ export function Grid(props: GridProps) {
                   <div key={bar} className="jam-page-bar">
                     {Array.from({ length: 4 }, (_, group) => (
                       <div className="jam-page-beat" key={group}>
+                        <span className="jam-beat-label">Beat {group + 1}</span>
                         {Array.from({ length: 4 }, (_, cell) => {
                           const index = bar * 16 + group * 4 + cell;
                           const value = track(kind)?.steps[index];
@@ -378,6 +466,23 @@ export function Grid(props: GridProps) {
                               disabled={props.editing && !props.ghosts.has(key)}
                               aria-label={`${LABELS[kind]} bar ${bar + 1} square ${group * 4 + cell + 1}, ${on ? "on" : "off"}`}
                               aria-pressed={on}
+                              onKeyDown={(event) => {
+                                if (!event.key.startsWith("Arrow")) return;
+                                event.preventDefault();
+                                const next =
+                                  bar * 16 +
+                                  adjacentStep(
+                                    index % 16,
+                                    event.key,
+                                    window.innerWidth < 1200,
+                                  );
+                                event.currentTarget
+                                  .closest(".jam-page-row")
+                                  ?.querySelector<HTMLButtonElement>(
+                                    `[data-index="${next}"]`,
+                                  )
+                                  ?.focus();
+                              }}
                               onPointerDown={(e) => {
                                 e.currentTarget.setPointerCapture(e.pointerId);
                                 beginPress(e, () =>
@@ -391,9 +496,13 @@ export function Grid(props: GridProps) {
                               onClick={(e) =>
                                 kind === "bass"
                                   ? props.onBassClick(index)
-                                  : props.onDrumClick(kind, index, e.shiftKey)
+                                  : props.onDrumClick(kind, index, false)
                               }
-                            />
+                            >
+                              {kind === "bass" && on
+                                ? bassNoteName(props.root, props.scale, value!)
+                                : null}
+                            </button>
                           );
                         })}
                       </div>
@@ -405,19 +514,24 @@ export function Grid(props: GridProps) {
           );
         })}
       </div>
-      <div className="jam-grid-legend">
-        <span>
-          <i className="jam-legend-dot jam-legend-dot--you" />
-          You
-        </span>
-        <span>
-          <i className="jam-legend-dot jam-legend-dot--agent" />
-          The band
-        </span>
-        <span className="jam-grid-legend__hint">
-          Hold a square to shape its sound
-        </span>
-      </div>
+      <p className="jam-grid-hint">
+        Tap to add or remove a hit. Hold for Softer / Louder.
+      </p>
+      {props.notesOpen && (
+        <section className="jam-notes-view">
+          <h2>Notes on the loop</h2>
+          {Array.from({ length: bars }, (_, bar) => (
+            <button
+              className="jam-btn"
+              key={bar}
+              onClick={() => setNoteBar(bar)}
+            >
+              Bar {bar + 1} ·{" "}
+              {props.comments.filter((c) => c.bar === bar).length || "No"} notes
+            </button>
+          ))}
+        </section>
+      )}
       <Sheet
         open={chordBar !== null}
         onOpenChange={(open) => {
@@ -514,6 +628,25 @@ export function Grid(props: GridProps) {
           <SheetDescription>
             The band will work on these bars, across every sound.
           </SheetDescription>
+          <fieldset className="jam-range-parts">
+            <legend>Parts</legend>
+            {TRACK_ORDER.map((kind) => (
+              <label key={kind}>
+                <input
+                  type="checkbox"
+                  checked={rangeTracks.includes(kind)}
+                  onChange={(e) =>
+                    setRangeTracks((cur) =>
+                      e.target.checked
+                        ? [...cur, kind]
+                        : cur.filter((k) => k !== kind),
+                    )
+                  }
+                />
+                {LABELS[kind]}
+              </label>
+            ))}
+          </fieldset>
           <div className="jam-range-pickers">
             <label>
               From
@@ -548,9 +681,10 @@ export function Grid(props: GridProps) {
             type="button"
             className="jam-primary"
             onClick={() => {
+              if (!rangeTracks.length) return;
               props.onPage(Math.min(rangeStart, rangeEnd));
               props.onSelect({
-                tracks: [...TRACK_ORDER],
+                tracks: rangeTracks,
                 barStart: Math.min(rangeStart, rangeEnd),
                 barEnd: Math.max(rangeStart, rangeEnd),
               });

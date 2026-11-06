@@ -1,9 +1,9 @@
 import {
   sendToAgentChatAndConfirm,
+  requestAgentChatThreadOpen,
   useAgentChatGenerating,
   useChatThreads,
 } from "@agent-native/core/client/agent-chat";
-import { requestAgentSidebarOpen } from "@agent-native/core/client/agent-sidebar-state";
 import {
   deleteClientAppState,
   writeClientAppState,
@@ -15,12 +15,8 @@ import {
 } from "@agent-native/core/client/hooks";
 import { defineClientAction } from "@agent-native/core/client/host";
 import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
-import {
-  IconArrowLeft,
-  IconArrowUpRight,
-  IconCheck,
-  IconX,
-} from "@tabler/icons-react";
+import { AgentPanel } from "@agent-native/toolkit/app/chat";
+import { IconArrowLeft, IconArrowUpRight, IconX } from "@tabler/icons-react";
 import { IconDots, IconMessageCircle } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -69,10 +65,11 @@ import {
 import { TRACK_ORDER } from "@/lib/jam/grid";
 import { TAB_ID } from "@/lib/tab-id";
 
+import { BandActivity } from "./BandActivity";
 import { Grid } from "./Grid";
 import { HistoryDrawer } from "./HistoryDrawer";
 import { IdeaTray } from "./IdeaTray";
-import { TransportBar, SoundControls } from "./TransportBar";
+import { TransportBar } from "./TransportBar";
 
 import "./jam.css";
 
@@ -85,7 +82,7 @@ const COACH_STEPS = [
     id: "play",
     label: "Press play",
   },
-  { id: "unstick", label: "Stuck? Ask the band" },
+  { id: "unstick", label: "Jam with the band" },
 ] as const;
 
 type CoachProgress = { completed: string[]; dismissed: boolean };
@@ -120,14 +117,26 @@ function writeJamChatTabId(sessionId: string, tabId: string): void {
 }
 
 export function SessionView({ sessionId }: { sessionId: string }) {
-  const [agentGenerating, sendAgentPrompt] = useAgentChatGenerating();
-  const { createThread } = useChatThreads(undefined, "jam-session", undefined, {
-    autoCreate: false,
-    restoreActiveThread: false,
+  const [bandThreadId, setBandThreadId] = useState<string | null>(null);
+  const restoreThread = useRef(readJamChatTabId(sessionId));
+  const restoreRequested = useRef(false);
+  const [agentGenerating, sendAgentPrompt] = useAgentChatGenerating({
+    tabId: bandThreadId,
   });
+  const [controllerBusy, setControllerBusy] = useState<boolean | null>(null);
+  const bandBusy = controllerBusy ?? agentGenerating;
+  const { createThread } = useChatThreads(
+    undefined,
+    `jam-session:${sessionId}`,
+    { type: "jam-session", id: sessionId },
+    {
+      autoCreate: false,
+      restoreActiveThread: false,
+    },
+  );
   const jamChatTab = useRef<{ sessionId: string; tabId: string | null }>({
     sessionId,
-    tabId: null,
+    tabId: restoreThread.current,
   });
   const qc = useQueryClient();
   const queryKey = useMemo(
@@ -168,20 +177,21 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const [bandOpen, setBandOpen] = useState(false);
   const [soundOpen, setSoundOpen] = useState(false);
   const [rangeOpen, setRangeOpen] = useState(false);
-  const [bandText, setBandText] = useState("");
-  const [sending, setSending] = useState(false);
+  const [bandReady, setBandReady] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [activityHost, setActivityHost] = useState<HTMLDivElement | null>(null);
+  const [requestBars, setRequestBars] = useState({ barStart: 0, barEnd: 0 });
+  const [activePart, setActivePart] = useState<TrackKind>("kick");
+  const [notesOpen, setNotesOpen] = useState(false);
   const [newIdeaAuthor, setNewIdeaAuthor] = useState<string | null>(null);
   const knownIdeas = useRef<Set<string> | null>(null);
   useEffect(() => {
-    const tablet = window.matchMedia("(min-width: 768px)");
     const desktop = window.matchMedia("(min-width: 1200px)");
-    const update = () =>
-      setViewportBars(desktop.matches ? Infinity : tablet.matches ? 2 : 1);
+    const update = () => setViewportBars(desktop.matches ? Infinity : 1);
     update();
-    tablet.addEventListener("change", update);
+
     desktop.addEventListener("change", update);
     return () => {
-      tablet.removeEventListener("change", update);
       desktop.removeEventListener("change", update);
     };
   }, []);
@@ -202,6 +212,25 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     if (bandOpen) setNewIdeaAuthor(null);
   }, [bandOpen]);
+  useEffect(() => {
+    if (!bandReady || (!bandOpen && viewportBars !== Infinity)) return;
+    // Entering the Band view is an explicit request to review its ideas.
+    // Scroll our heading, leaving the shared transcript's streaming behavior intact.
+    const timer = setTimeout(
+      () =>
+        document
+          .getElementById("jam-ideas-heading")
+          ?.scrollIntoView({ block: "start" }),
+      180,
+    );
+    return () => clearTimeout(timer);
+  }, [bandReady, bandOpen, viewportBars]);
+  useEffect(() => {
+    if (bandReady && restoreThread.current && !restoreRequested.current) {
+      restoreRequested.current = true;
+      requestAgentChatThreadOpen({ threadId: restoreThread.current });
+    }
+  }, [bandReady]);
   const [auditionId, setAuditionId] = useState<string | null>(null);
   const [editing, setEditing] = useState<{
     ideaId: string;
@@ -337,6 +366,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     engine.setState({
       bpm: data.session.bpm,
       swing: data.session.swing,
+      kit: data.session.kit,
       root: data.session.root,
       scale: data.session.scale,
       bars: data.session.bars,
@@ -621,6 +651,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       root: string;
       scale: string;
       swing: number;
+      kit: SessionData["session"]["kit"];
     }>,
   ) => {
     optimistic((d) => ({ ...d, session: { ...d.session, ...change } }));
@@ -688,6 +719,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     setAuditionId(null);
     setBandOpen(false);
     const first = idea.patch[0];
+    if (first) setActivePart(first.track);
     if (first)
       goToPage(
         first.track === "keys"
@@ -739,6 +771,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     extraContext: string[] = [],
     confirmDelivery = false,
   ) => {
+    setControllerBusy(null);
+    setRequestBars({
+      barStart: selection?.barStart ?? page,
+      barEnd: selection?.barEnd ?? page,
+    });
     if (jamChatTab.current.sessionId !== sessionId) {
       jamChatTab.current = {
         sessionId,
@@ -751,6 +788,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       (await createThread());
     if (!targetTabId) throw new Error("Could not create a Jam chat thread.");
     jamChatTab.current.tabId = targetTabId;
+    setBandThreadId(targetTabId);
     writeJamChatTabId(sessionId, targetTabId);
     const prompt = {
       message,
@@ -766,7 +804,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         ...extraContext,
       ].join("\n"),
       submit: true,
-      openSidebar: true,
+      openSidebar: false,
       chatTarget: "local" as const,
       targetTabId,
     };
@@ -787,6 +825,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const onAddComment = async (bar: number, text: string) => {
     const { comment } = await addCommentM.mutateAsync({ sessionId, bar, text });
     const commentId = comment.id;
+    setBandOpen(true);
     try {
       await sendPrompt(
         `I left a note on bar ${bar + 1}: "${text}"`,
@@ -823,7 +862,8 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   );
 
   const onUnstick = () => {
-    if (bandMoment === "working") return;
+    if (bandMoment === "working" || bandBusy) return;
+    setBandOpen(true);
     completeCoachStep("unstick");
     ideasBeforeUnstick.current = new Set(data?.ideas.map(({ id }) => id) ?? []);
     unstickRunObserved.current = false;
@@ -846,20 +886,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       {},
       {
         onSuccess: () => {
-          void sendPrompt("Unstick me")
-            .then(() => {
-              unstickTimer.current = setTimeout(() => {
-                if (unstickRunObserved.current) return;
-                setBandMoment((current) =>
-                  current === "working" ? "sent" : current,
-                );
-                unstickTimer.current = setTimeout(
-                  () => setBandMoment(null),
-                  4500,
-                );
-              }, 12000);
-            })
-            .catch(showSent);
+          void sendPrompt("Unstick me", [], true).catch(showSent);
         },
         onError: showSent,
       },
@@ -882,7 +909,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     if (bandMoment !== "working") return;
-    if (agentGenerating) {
+    if (bandBusy) {
       unstickRunObserved.current = true;
       if (unstickTimer.current) clearTimeout(unstickTimer.current);
       return;
@@ -899,7 +926,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       return;
     setBandMoment("sent");
     unstickTimer.current = setTimeout(() => setBandMoment(null), 9000);
-  }, [agentGenerating, bandMoment, bandmateDone, data?.ideas]);
+  }, [bandBusy, bandMoment, bandmateDone, data?.ideas]);
 
   const coachStep =
     coachReady && !coachProgress.dismissed
@@ -982,6 +1009,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         root: session.root,
         scale: session.scale,
         swing: session.swing,
+        kit: session.kit,
         bars: session.bars,
         playing,
       },
@@ -1102,20 +1130,10 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   );
   const editingIdea = data.ideas.find((i) => i.id === editing?.ideaId);
   const openChat = () => {
-    setBandOpen(false);
-    requestAgentSidebarOpen();
-  };
-  const ask = async (message: string) => {
-    setSending(true);
-    setBandOpen(false);
-    try {
-      await sendPrompt(message);
-      setBandText("");
-    } catch (cause) {
-      notify(errorMessage(cause));
-    } finally {
-      setSending(false);
-    }
+    setBandOpen(true);
+    if (jamChatTab.current.tabId)
+      requestAgentChatThreadOpen({ threadId: jamChatTab.current.tabId });
+    setInspectorOpen(true);
   };
   const band = (
     <div className="jam-band-content">
@@ -1124,100 +1142,183 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           <IconMessageCircle size={22} />
         </span>
         <div>
-          <h2>Ask the band</h2>
+          <h2>The band</h2>
           <p>About {barPhrase}</p>
         </div>
+        <button
+          className="jam-text-button jam-view-ideas"
+          onClick={() =>
+            document
+              .getElementById("jam-ideas-heading")
+              ?.scrollIntoView({ block: "start", behavior: "smooth" })
+          }
+        >
+          Ideas {data.ideas.length}
+        </button>
       </div>
       <button
         type="button"
-        className="jam-primary jam-help-band"
-        disabled={bandMoment === "working"}
+        className="jam-btn jam-help-band"
+        disabled={bandMoment === "working" || bandBusy}
         onClick={() => {
-          setBandOpen(false);
           onUnstick();
         }}
       >
-        {bandMoment === "working"
+        {bandMoment === "working" || bandBusy
           ? "The band is thinking…"
-          : "I'm stuck — help me"}
+          : "Jam with the band"}
       </button>
-      <div className="jam-band-chips">
-        {[
-          ["Busier", `Make ${barPhrase} busier`],
-          ["Calmer", `Simplify ${barPhrase}`],
-          ["Darker", `Make ${barPhrase} darker`],
-          ["Brighter", `Make ${barPhrase} brighter`],
-          [
-            "Build up into the next part",
-            `Add a fill to the last bar of ${barPhrase}, building into the next part`,
-          ],
-          ["Surprise me", `Vary ${barPhrase}; give me three ideas`],
-        ].map(([label, message]) => (
-          <button
-            type="button"
-            className="jam-prompt-chip"
-            key={label}
-            disabled={sending}
-            onClick={() => void ask(message!)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <form
-        className="jam-band-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (bandText.trim()) void ask(bandText.trim());
+      <div
+        ref={setActivityHost}
+        hidden={inspectorOpen}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      />
+      <AgentPanel
+        key={sessionId}
+        className="jam-band-chat"
+        onReadyChange={setBandReady}
+        storageKey={`jam-session:${sessionId}`}
+        browserTabId={TAB_ID}
+        scope={{
+          type: "jam-session",
+          id: sessionId,
+          label: session.name,
+          context: `Jam Session ${sessionId}. Read view-screen and get-taste before proposing. Propose ideas; only apply when explicitly asked.`,
         }}
-      >
-        <input
-          aria-label="Tell the band anything"
-          placeholder="Tell the band anything…"
-          value={bandText}
-          onChange={(e) => setBandText(e.target.value)}
-          maxLength={1000}
-        />
-        <button
-          className="jam-btn"
-          type="submit"
-          disabled={sending || !bandText.trim()}
-        >
-          {sending ? "Sending…" : "Send"}
-        </button>
-      </form>
-      <IdeaTray
-        ideas={data.ideas}
-        tracks={data.tracks}
-        auditionId={auditionId}
-        editingId={editing?.ideaId ?? null}
-        draft={editing?.draft ?? null}
-        highlightId={highlightIdeaId}
-        playing={playing}
-        onAudition={(id) => {
-          setAuditionId(id);
-          if (id && !engine.playing) void togglePlay();
-          else if (!id) {
-            engine.stop();
-            setPlaying(false);
+        isolateHistoryByScope
+        chatOnly={!inspectorOpen}
+        showHeader={inspectorOpen}
+        showTabBar={inspectorOpen}
+        dynamicSuggestions={false}
+        showModelSelector={inspectorOpen}
+        suggestionPlacement="hidden"
+        onReferenceTargetChange={(id) => {
+          if (
+            id &&
+            !inspectorOpen &&
+            (!restoreThread.current || restoreThread.current === id)
+          ) {
+            restoreThread.current = null;
+            setBandThreadId(id);
+            jamChatTab.current = { sessionId, tabId: id };
+            writeJamChatTabId(sessionId, id);
           }
         }}
-        onKeep={onKeep}
-        onToss={onToss}
-        onEdit={onEdit}
-        onCancelEdit={cancelEditing}
-        onKeepEdited={onKeepEdited}
-        onTogglePlay={() => void togglePlay()}
+        onTabsClosed={(ids) => {
+          if (
+            jamChatTab.current.tabId &&
+            ids.includes(jamChatTab.current.tabId)
+          ) {
+            restoreThread.current = null;
+            jamChatTab.current.tabId = null;
+            setBandThreadId(null);
+            try {
+              window.localStorage.removeItem(jamChatTabStorageKey(sessionId));
+            } catch {
+              /* Optional local thread memory. */
+            }
+          }
+        }}
+        showPageHeader={inspectorOpen}
+        showPageNewChatButton={false}
+        showCollapseButton={false}
+        composerAutoFocus={false}
+        emptyStateDisplay="hidden"
+        composerPlaceholder="Tell the band…"
+        suggestions={[]}
+        threadFooterSlot={
+          <>
+            <BandActivity
+              target={activityHost}
+              threadId={bandThreadId}
+              team={bandMoment !== null}
+              pending={bandMoment === "working"}
+              done={bandmateDone}
+              {...requestBars}
+              onBusyChange={setControllerBusy}
+            />
+            <div hidden={inspectorOpen}>
+              <IdeaTray
+                root={session.root}
+                scale={session.scale}
+                ideas={data.ideas}
+                tracks={data.tracks}
+                auditionId={auditionId}
+                editingId={editing?.ideaId ?? null}
+                draft={editing?.draft ?? null}
+                highlightId={highlightIdeaId}
+                playing={playing}
+                busy={keepM.isPending || tossM.isPending}
+                onAudition={(id) => {
+                  setAuditionId(id);
+                  if (id && !engine.playing) void togglePlay();
+                  else if (!id) {
+                    engine.stop();
+                    setPlaying(false);
+                  }
+                }}
+                onKeep={onKeep}
+                onToss={onToss}
+                onEdit={onEdit}
+                onCancelEdit={cancelEditing}
+                onKeepEdited={onKeepEdited}
+                onTogglePlay={() => void togglePlay()}
+              />
+              {(data.comments ?? []).length > 0 && (
+                <section
+                  className="jam-band-notes"
+                  aria-label="Bar notes and replies"
+                >
+                  <h3>Notes from the loop</h3>
+                  {(data.comments ?? []).map((comment) => (
+                    <article className="jam-band-note" key={comment.id}>
+                      <span className="jam-label">
+                        Bar {comment.bar + 1} · You
+                      </span>
+                      <p>{comment.text}</p>
+                      {comment.reply ? (
+                        <div className="jam-comment__reply">
+                          <strong className="jam-author">
+                            {comment.replyAuthor ?? "Bandmate"}
+                          </strong>
+                          <p>{comment.reply}</p>
+                          {comment.ideaId && (
+                            <button
+                              className="jam-text-button"
+                              onClick={() => seeIdea(comment.ideaId!)}
+                            >
+                              See idea
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="jam-label">
+                          Waiting for a bandmate
+                        </span>
+                      )}
+                    </article>
+                  ))}
+                </section>
+              )}
+              <p className="jam-band-taste">
+                The band remembers:{" "}
+                {taste?.summary ??
+                  "your taste grows as you use and skip ideas."}
+              </p>{" "}
+            </div>
+          </>
+        }
       />
-      <p className="jam-band-taste">
-        The band remembers:{" "}
-        {taste?.summary ?? "your taste grows as you use and skip ideas."}
-      </p>
     </div>
   );
 
   return (
-    <div className="jam-root jam-session">
+    <div
+      className="jam-root jam-session"
+      data-phone-tab={bandOpen ? "band" : notesOpen ? "notes" : "loop"}
+    >
       <header className="jam-session-head">
         <Link to="/home" className="jam-back-link" aria-label="Your sketches">
           <IconArrowLeft size={21} />
@@ -1225,15 +1326,26 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         <h1 className="jam-sketch-title" title={session.name}>
           {session.name}
         </h1>
-        <div className="jam-inline-sound">
-          <SoundControls
-            bpm={session.bpm}
-            root={session.root}
-            scale={session.scale}
-            swing={session.swing}
-            onChange={onTransport}
-          />
-        </div>
+        <span className="jam-session-status">
+          {setStepsM.isPending ||
+          progressionM.isPending ||
+          transportM.isPending ||
+          keepM.isPending
+            ? "Saving…"
+            : "Your loop"}
+        </span>
+        <button
+          className="jam-btn jam-header-sound"
+          onClick={() => setSoundOpen(true)}
+        >
+          Sound
+        </button>
+        <button
+          className="jam-btn jam-header-history"
+          onClick={() => setHistoryOpen(true)}
+        >
+          Grid history
+        </button>
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <button
@@ -1246,7 +1358,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           </DropdownMenuTrigger>
           <DropdownMenuContent className="jam-root jam-sketch-menu" align="end">
             <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
-              History
+              Grid history
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={undo}>Undo</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setRangeOpen(true)}>
@@ -1255,7 +1367,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
             <DropdownMenuItem onSelect={() => setSoundOpen(true)}>
               Sound settings
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={openChat}>Open chat</DropdownMenuItem>
+            <DropdownMenuItem onSelect={openChat}>
+              How the band works
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setHelpOpen(true)}>
               Shortcuts
             </DropdownMenuItem>
@@ -1264,7 +1378,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       </header>
       <div className="jam-sketch-workspace">
         <section className="jam-stage" aria-label="Sketch editor">
-          {coachStep && (
+          {coachStep && !editing && (
             <div className="jam-coach" aria-live="polite">
               <span className="jam-coach__count">{coachStepNumber}/3</span>
               <span>{coachStep.label}</span>
@@ -1274,6 +1388,25 @@ export function SessionView({ sessionId }: { sessionId: string }) {
                 aria-label="Dismiss first-run guide"
               >
                 <IconX size={17} />
+              </button>
+            </div>
+          )}
+          {editing && editingIdea && (
+            <div className="jam-draft-bar" role="status">
+              <span>Tweaking {editingIdea.author}'s idea · Not saved</span>
+              <button
+                type="button"
+                className="jam-primary"
+                disabled={
+                  keepM.isPending ||
+                  patchCells(data.tracks, editing.draft).length === 0
+                }
+                onClick={() => onKeepEdited(editingIdea)}
+              >
+                Use tweaked
+              </button>
+              <button type="button" className="jam-btn" onClick={cancelEditing}>
+                Cancel
               </button>
             </div>
           )}
@@ -1287,7 +1420,10 @@ export function SessionView({ sessionId }: { sessionId: string }) {
             selection={selection}
             onSelect={setSelection}
             page={page}
-            perPage={Math.min(session.bars, viewportBars)}
+            perPage={1}
+            activePart={activePart}
+            onActivePart={setActivePart}
+            notesOpen={notesOpen}
             onPage={goToPage}
             ideaBars={ideaBars}
             editing={!!editing}
@@ -1320,56 +1456,64 @@ export function SessionView({ sessionId }: { sessionId: string }) {
             onAddComment={onAddComment}
             onSeeIdea={seeIdea}
           />
-          {editing && editingIdea && (
-            <div className="jam-draft-bar" role="status">
-              <span>Tweaking {editingIdea.author}'s idea</span>
-              <button
-                type="button"
-                className="jam-primary"
-                disabled={patchCells(data.tracks, editing.draft).length === 0}
-                onClick={() => onKeepEdited(editingIdea)}
-              >
-                Use tweaked
-              </button>
-              <button type="button" className="jam-btn" onClick={cancelEditing}>
-                Cancel
-              </button>
-            </div>
-          )}
-          {(bandMoment || agentGenerating) && (
-            <div className="jam-band-moment" role="status">
-              <strong>
-                {bandMoment === "ideas"
-                  ? "The band has ideas"
-                  : bandMoment === "sent"
-                    ? "The band is in chat"
-                    : "The band is thinking…"}
-              </strong>
-              <div className="jam-band-roster">
-                {BANDMATE_AUTHORS.map((author) => (
-                  <span
-                    key={author}
-                    data-done={bandmateDone.has(author) || undefined}
-                  >
-                    {author}
-                    {bandmateDone.has(author) && <IconCheck size={14} />}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
         </section>
-        {viewportBars === Infinity && (
-          <aside className="jam-band-column" aria-label="Ask the band">
-            {band}
-          </aside>
-        )}
+        <aside
+          className="jam-band-column"
+          data-inspector={inspectorOpen || undefined}
+          aria-label="Band conversation"
+        >
+          {inspectorOpen && (
+            <button
+              className="jam-btn jam-inspector-close"
+              onClick={() => {
+                if (jamChatTab.current.tabId)
+                  requestAgentChatThreadOpen({
+                    threadId: jamChatTab.current.tabId,
+                  });
+                setInspectorOpen(false);
+              }}
+            >
+              Back to band
+            </button>
+          )}
+          {band}
+        </aside>
       </div>
+      <nav className="jam-mobile-tabs" aria-label="Sketch views">
+        <button
+          aria-pressed={!bandOpen && !notesOpen}
+          onClick={() => {
+            setBandOpen(false);
+            setNotesOpen(false);
+          }}
+        >
+          Loop
+        </button>
+        <button
+          aria-pressed={bandOpen}
+          onClick={() => {
+            setBandOpen(true);
+            setNotesOpen(false);
+          }}
+        >
+          Band {data.ideas.length > 0 && <span>{data.ideas.length}</span>}
+        </button>
+        <button
+          aria-pressed={notesOpen && !bandOpen}
+          onClick={() => {
+            setBandOpen(false);
+            setNotesOpen(true);
+          }}
+        >
+          Notes
+        </button>
+      </nav>
       <TransportBar
         bpm={session.bpm}
         root={session.root}
         scale={session.scale}
         swing={session.swing}
+        kit={session.kit}
         playing={playing}
         onTogglePlay={() => void togglePlay()}
         onChange={onTransport}
@@ -1410,21 +1554,6 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           </button>
         </div>
       )}
-      <Sheet
-        open={bandOpen && viewportBars !== Infinity}
-        onOpenChange={setBandOpen}
-      >
-        <SheetContent
-          side="bottom"
-          className="jam-root jam-bottom-sheet jam-band-sheet"
-        >
-          <SheetTitle className="sr-only">Ask the band</SheetTitle>
-          <SheetDescription className="sr-only">
-            Ideas for {barPhrase}
-          </SheetDescription>
-          {band}
-        </SheetContent>
-      </Sheet>
       {historyOpen && (
         <HistoryDrawer
           sessionId={sessionId}

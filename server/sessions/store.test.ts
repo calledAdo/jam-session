@@ -3,9 +3,11 @@ import { drizzle } from "drizzle-orm/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import createSessionAction from "../../actions/create-session.js";
 import {
   EDIT_COMMENTS_SCHEMA_SQL,
   INITIAL_SCHEMA_SQL,
+  KIT_SCHEMA_SQL,
 } from "../db/migrations.js";
 import * as schema from "../db/schema.js";
 import {
@@ -38,6 +40,7 @@ beforeEach(async () => {
   client = new PGlite();
   await client.exec(INITIAL_SCHEMA_SQL);
   await client.exec(EDIT_COMMENTS_SCHEMA_SQL);
+  await client.exec(KIT_SCHEMA_SQL);
   testDb = drizzle(client, { schema });
 });
 
@@ -565,5 +568,123 @@ describe("jam session store", () => {
         ideaId: otherIdea!.id,
       }),
     ).rejects.toThrow(/different session/);
+  });
+});
+
+describe("vibe and kit persistence", () => {
+  it.each([
+    ["boombap", 90, "boombap"],
+    ["trap", 140, "808"],
+  ] as const)(
+    "preserves %s transport defaults through the public create-session action",
+    async (seed, bpm, kit) => {
+      // Exercise the same schema boundary as CLI/UI callers, not just the store.
+      const created = await createSessionAction.run({ seed, bars: "8" });
+      expect((await getSession(created.session.id)).session).toMatchObject({
+        bpm,
+        kit,
+        bars: 8,
+      });
+    },
+  );
+
+  it("repairs overridden boom-bap transport without changing its grid or other settings", async () => {
+    const created = await createSession({ seed: "boombap" });
+    await updateTransport(created.session.id, {
+      bpm: 65,
+      kit: "dusty",
+      swing: 0.52,
+    });
+    const overridden = await getSession(created.session.id);
+    expect(overridden.session).toMatchObject({ bpm: 65, kit: "dusty" });
+
+    await updateTransport(created.session.id, { bpm: 90, kit: "boombap" });
+    const repaired = await getSession(created.session.id);
+    expect(repaired.session).toMatchObject({
+      bpm: 90,
+      kit: "boombap",
+      swing: 0.52,
+    });
+    expect(repaired.tracks).toEqual(overridden.tracks);
+    expect(await getEditsForSession(created.session.id)).toEqual([]);
+  });
+
+  it.each([
+    ["lofi", 82, "C", 0.25, "dusty"],
+    ["boombap", 90, "D", 0.3, "boombap"],
+    ["trap", 140, "F", 0, "808"],
+    ["house", 124, "A", 0, "clean"],
+    ["empty", 90, "C", 0, "clean"],
+  ] as const)(
+    "uses and persists %s defaults",
+    async (seed, bpm, root, swing, kit) => {
+      const created = await createSession({ seed });
+      const read = await getSession(created.session.id);
+      expect(read.session).toMatchObject({
+        bpm,
+        root,
+        scale: "minor",
+        swing,
+        kit,
+      });
+    },
+  );
+
+  it("honors every explicit override, including zero swing", async () => {
+    const { session } = await createSession({
+      seed: "boombap",
+      bpm: 110,
+      root: "Bb",
+      scale: "major",
+      swing: 0,
+      kit: "clean",
+    });
+    expect(session).toMatchObject({
+      bpm: 110,
+      root: "Bb",
+      scale: "major",
+      swing: 0,
+      kit: "clean",
+    });
+  });
+
+  it("swaps kits without touching patterns or grid edit history", async () => {
+    const original = await createSession({ seed: "trap" });
+    await setSteps({
+      sessionId: original.session.id,
+      track: "hat",
+      fromStep: 0,
+      steps: [3],
+    });
+    const before = await getSession(original.session.id);
+    const history = await getEditsForSession(original.session.id);
+    for (const kit of ["dusty", "boombap", "808", "clean"] as const) {
+      await updateTransport(original.session.id, { kit });
+      const after = await getSession(original.session.id);
+      expect(after.session.kit).toBe(kit);
+      expect(after.tracks).toEqual(before.tracks);
+      expect(after.session.bpm).toBe(before.session.bpm);
+      expect(await getEditsForSession(original.session.id)).toEqual(history);
+    }
+    await expect(
+      updateTransport(original.session.id, { kit: "invalid" as never }),
+    ).rejects.toThrow(/kit/);
+    await expect(createSession({ kit: "invalid" as never })).rejects.toThrow(
+      /kit/,
+    );
+  });
+
+  it("adds dusty to an existing session with an idempotent additive migration", async () => {
+    await client.exec("ALTER TABLE jam_sessions DROP COLUMN kit");
+    await client.exec(
+      "INSERT INTO jam_sessions (id, name, bpm) VALUES ('legacy', 'Old sketch', 99)",
+    );
+    await client.exec(KIT_SCHEMA_SQL);
+    await client.exec(KIT_SCHEMA_SQL);
+    expect((await getSession("legacy")).session).toMatchObject({
+      name: "Old sketch",
+      bpm: 99,
+      kit: "dusty",
+    });
   });
 });
