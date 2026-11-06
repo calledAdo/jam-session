@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import createSessionAction from "../../actions/create-session.js";
 import {
   EDIT_COMMENTS_SCHEMA_SQL,
   INITIAL_SCHEMA_SQL,
@@ -571,6 +572,43 @@ describe("jam session store", () => {
 });
 
 describe("vibe and kit persistence", () => {
+  it.each([
+    ["boombap", 90, "boombap"],
+    ["trap", 140, "808"],
+  ] as const)(
+    "preserves %s transport defaults through the public create-session action",
+    async (seed, bpm, kit) => {
+      // Exercise the same schema boundary as CLI/UI callers, not just the store.
+      const created = await createSessionAction.run({ seed, bars: "8" });
+      expect((await getSession(created.session.id)).session).toMatchObject({
+        bpm,
+        kit,
+        bars: 8,
+      });
+    },
+  );
+
+  it("repairs overridden boom-bap transport without changing its grid or other settings", async () => {
+    const created = await createSession({ seed: "boombap" });
+    await updateTransport(created.session.id, {
+      bpm: 65,
+      kit: "dusty",
+      swing: 0.52,
+    });
+    const overridden = await getSession(created.session.id);
+    expect(overridden.session).toMatchObject({ bpm: 65, kit: "dusty" });
+
+    await updateTransport(created.session.id, { bpm: 90, kit: "boombap" });
+    const repaired = await getSession(created.session.id);
+    expect(repaired.session).toMatchObject({
+      bpm: 90,
+      kit: "boombap",
+      swing: 0.52,
+    });
+    expect(repaired.tracks).toEqual(overridden.tracks);
+    expect(await getEditsForSession(created.session.id)).toEqual([]);
+  });
+
   it.each([
     ["lofi", 82, "C", 0.25, "dusty"],
     ["boombap", 90, "D", 0.3, "boombap"],

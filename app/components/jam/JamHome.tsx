@@ -288,6 +288,8 @@ export function JamHome() {
               chatOnly
               showHeader={false}
               dynamicSuggestions={false}
+              suggestionPlacement="hidden"
+              suggestions={[]}
               showPageHeader={false}
               showTabBar={false}
               showCollapseButton={false}

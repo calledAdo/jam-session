@@ -78,8 +78,7 @@
 .jam-btn,
 .jam-icon-button,
 .jam-text-button,
-.jam-primary,
-.jam-prompt-chip {
+.jam-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -115,8 +114,7 @@
   color: var(--jam-cyan);
 }
 .jam-btn:hover,
-.jam-icon-button:hover,
-.jam-prompt-chip:hover {
+.jam-icon-button:hover {
   background: var(--jam-line);
 }
 .jam-inline-error {
@@ -1274,53 +1272,55 @@
   font-size: 13px;
 }
 .jam-help-band {
-  background: #352c1d;
-  border-color: #8e7140;
-  color: var(--jam-amber);
-  min-height: 48px;
-}
-.jam-band-chips {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  flex-shrink: 0;
-  scrollbar-width: none;
-}
-.jam-band-chips button {
-  white-space: nowrap;
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 6px 10px;
   background: transparent;
-  font-weight: 400;
+  color: var(--jam-dim);
+  font-weight: 500;
   font-size: 13px;
-  border-radius: 24px;
 }
 .jam-band-chat {
   flex: 1;
   min-height: 0;
-  --background: #201e1b;
+  --agentkit-chat-background: var(--jam-panel);
+  --agentkit-composer-background: var(--jam-panel-2);
+  --agent-kit-raised-surface: var(--jam-panel-2);
+  --agent-kit-subtle-surface: var(--jam-cell);
+  --agent-kit-text: var(--jam-text);
+  --agent-kit-muted-text: var(--jam-dim);
+  --agent-kit-border: var(--jam-line);
 }
 .jam-band-chat .agentkit-thread {
   min-width: 0;
 }
-.jam-band-moment {
+.jam-band-activity {
+  display: grid;
+  gap: 8px;
   padding: 12px;
   border: 1px solid #685438;
   border-radius: 12px;
   color: var(--jam-amber);
   font-size: 13px;
+  flex-shrink: 0;
 }
-.jam-band-roster {
+.jam-band-activity__row {
   display: flex;
-  gap: 12px;
-  margin-top: 8px;
-}
-.jam-band-roster span {
-  display: flex;
+  gap: 8px;
   align-items: center;
-  gap: 4px;
-  color: var(--jam-dim);
+  line-height: 1.4;
 }
-.jam-band-roster [data-done] {
-  color: var(--jam-amber);
+.jam-band-activity__avatar {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--jam-panel-2);
+}
+.jam-band-activity__row[data-done] {
+  color: var(--jam-text);
 }
 .jam-band-taste {
   margin: 18px 0;
@@ -1360,8 +1360,7 @@
   margin-bottom: 8px;
 }
 .jam-band-column[data-inspector] .jam-band-intro,
-.jam-band-column[data-inspector] .jam-help-band,
-.jam-band-column[data-inspector] .jam-band-chips {
+.jam-band-column[data-inspector] .jam-help-band {
   display: none;
 }
 .jam-idea__actions {
@@ -1814,11 +1813,67 @@
 }
 .jam-band-chat .agentkit-transcript {
   background: transparent;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-color: var(--jam-line) transparent;
+}
+/* Keep cards in the transcript's own grid row, above the in-flow composer.
+   The shared chat's scrim and floating jump button obscure card previews. */
+.jam-band-chat .agentkit-chat {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.jam-band-chat .agentkit-transcript-content {
+  padding: 8px 4px 12px;
+}
+.jam-band-chat .agentkit-chat-footer {
+  padding: 8px 0;
+  border-top: 1px solid var(--jam-line);
+  background: var(--jam-panel);
+}
+.jam-band-chat .agentkit-chat-footer::before,
+.jam-band-chat .agentkit-scroll-to-bottom-control {
+  display: none;
+}
+.jam-band-chat [data-agent-composer-slot="area"] {
+  padding: 0;
+}
+.jam-band-chat [data-agent-composer-slot="root"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-color: var(--jam-line);
+  border-radius: 12px;
+}
+.jam-band-chat
+  [data-agent-composer-slot="root"]
+  > :not(
+    [data-agent-composer-slot="editor-wrap"],
+    [data-agent-composer-slot="toolbar"]
+  ) {
+  grid-column: 1 / -1;
+}
+.jam-band-chat [data-agent-composer-slot="editor-wrap"] {
+  min-width: 0;
+  padding: 8px;
+}
+.jam-band-chat [data-agent-composer-slot="editor-input"] {
+  font-size: 16px;
+  line-height: 24px;
+  min-height: 24px;
+  max-height: 72px;
+  overflow-y: auto;
+}
+.jam-band-chat [data-agent-composer-slot="editor-input"] p {
+  line-height: inherit;
+}
+.jam-band-chat [data-agent-composer-slot="toolbar"] {
+  padding: 0 4px 0 0;
+  gap: 0;
 }
 .jam-band-chat button {
   min-height: 44px;
   min-width: 44px;
 }
 .jam-band-chat .jam-idea__actions button {
-  min-width: 0;
+  min-width: 44px;
 }

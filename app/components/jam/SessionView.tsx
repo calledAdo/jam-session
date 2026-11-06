@@ -16,12 +16,7 @@ import {
 import { defineClientAction } from "@agent-native/core/client/host";
 import { createAgentNativeWebMcpRegistration } from "@agent-native/core/client/webmcp";
 import { AgentPanel } from "@agent-native/toolkit/app/chat";
-import {
-  IconArrowLeft,
-  IconArrowUpRight,
-  IconCheck,
-  IconX,
-} from "@tabler/icons-react";
+import { IconArrowLeft, IconArrowUpRight, IconX } from "@tabler/icons-react";
 import { IconDots, IconMessageCircle } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -70,6 +65,7 @@ import {
 import { TRACK_ORDER } from "@/lib/jam/grid";
 import { TAB_ID } from "@/lib/tab-id";
 
+import { BandActivity } from "./BandActivity";
 import { Grid } from "./Grid";
 import { HistoryDrawer } from "./HistoryDrawer";
 import { IdeaTray } from "./IdeaTray";
@@ -86,7 +82,7 @@ const COACH_STEPS = [
     id: "play",
     label: "Press play",
   },
-  { id: "unstick", label: "Stuck? Ask the band" },
+  { id: "unstick", label: "Jam with the band" },
 ] as const;
 
 type CoachProgress = { completed: string[]; dismissed: boolean };
@@ -127,6 +123,8 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const [agentGenerating, sendAgentPrompt] = useAgentChatGenerating({
     tabId: bandThreadId,
   });
+  const [controllerBusy, setControllerBusy] = useState<boolean | null>(null);
+  const bandBusy = controllerBusy ?? agentGenerating;
   const { createThread } = useChatThreads(
     undefined,
     `jam-session:${sessionId}`,
@@ -181,9 +179,10 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const [rangeOpen, setRangeOpen] = useState(false);
   const [bandReady, setBandReady] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [activityHost, setActivityHost] = useState<HTMLDivElement | null>(null);
+  const [requestBars, setRequestBars] = useState({ barStart: 0, barEnd: 0 });
   const [activePart, setActivePart] = useState<TrackKind>("kick");
   const [notesOpen, setNotesOpen] = useState(false);
-  const [sending, setSending] = useState(false);
   const [newIdeaAuthor, setNewIdeaAuthor] = useState<string | null>(null);
   const knownIdeas = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -772,6 +771,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     extraContext: string[] = [],
     confirmDelivery = false,
   ) => {
+    setControllerBusy(null);
+    setRequestBars({
+      barStart: selection?.barStart ?? page,
+      barEnd: selection?.barEnd ?? page,
+    });
     if (jamChatTab.current.sessionId !== sessionId) {
       jamChatTab.current = {
         sessionId,
@@ -858,7 +862,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   );
 
   const onUnstick = () => {
-    if (bandMoment === "working" || agentGenerating || sending) return;
+    if (bandMoment === "working" || bandBusy) return;
     setBandOpen(true);
     completeCoachStep("unstick");
     ideasBeforeUnstick.current = new Set(data?.ideas.map(({ id }) => id) ?? []);
@@ -882,20 +886,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       {},
       {
         onSuccess: () => {
-          void sendPrompt("Unstick me")
-            .then(() => {
-              unstickTimer.current = setTimeout(() => {
-                if (unstickRunObserved.current) return;
-                setBandMoment((current) =>
-                  current === "working" ? "sent" : current,
-                );
-                unstickTimer.current = setTimeout(
-                  () => setBandMoment(null),
-                  4500,
-                );
-              }, 12000);
-            })
-            .catch(showSent);
+          void sendPrompt("Unstick me", [], true).catch(showSent);
         },
         onError: showSent,
       },
@@ -918,7 +909,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     if (bandMoment !== "working") return;
-    if (agentGenerating) {
+    if (bandBusy) {
       unstickRunObserved.current = true;
       if (unstickTimer.current) clearTimeout(unstickTimer.current);
       return;
@@ -935,7 +926,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       return;
     setBandMoment("sent");
     unstickTimer.current = setTimeout(() => setBandMoment(null), 9000);
-  }, [agentGenerating, bandMoment, bandmateDone, data?.ideas]);
+  }, [bandBusy, bandMoment, bandmateDone, data?.ideas]);
 
   const coachStep =
     coachReady && !coachProgress.dismissed
@@ -1140,18 +1131,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const editingIdea = data.ideas.find((i) => i.id === editing?.ideaId);
   const openChat = () => {
     setBandOpen(true);
+    if (jamChatTab.current.tabId)
+      requestAgentChatThreadOpen({ threadId: jamChatTab.current.tabId });
     setInspectorOpen(true);
-  };
-  const ask = async (message: string) => {
-    setSending(true);
-    setBandOpen(true);
-    try {
-      await sendPrompt(message);
-    } catch (cause) {
-      notify(errorMessage(cause));
-    } finally {
-      setSending(false);
-    }
   };
   const band = (
     <div className="jam-band-content">
@@ -1176,61 +1158,23 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       </div>
       <button
         type="button"
-        className="jam-primary jam-help-band"
-        disabled={bandMoment === "working" || agentGenerating || sending}
+        className="jam-btn jam-help-band"
+        disabled={bandMoment === "working" || bandBusy}
         onClick={() => {
           onUnstick();
         }}
       >
-        {bandMoment === "working"
+        {bandMoment === "working" || bandBusy
           ? "The band is thinking…"
-          : "I'm stuck — help me"}
+          : "Jam with the band"}
       </button>
-      <div className="jam-band-chips">
-        {[
-          ["Busier", `Make ${barPhrase} busier`],
-          ["Calmer", `Simplify ${barPhrase}`],
-          ["Darker", `Make ${barPhrase} darker`],
-          ["Brighter", `Make ${barPhrase} brighter`],
-          [
-            "Build up into the next part",
-            `Add a fill to the last bar of ${barPhrase}, building into the next part`,
-          ],
-          ["Surprise me", `Vary ${barPhrase}; give me three ideas`],
-        ].map(([label, message]) => (
-          <button
-            type="button"
-            className="jam-prompt-chip"
-            key={label}
-            disabled={sending}
-            onClick={() => void ask(message!)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {(bandMoment || agentGenerating) && (
-        <div className="jam-band-moment" role="status">
-          <strong>
-            {bandMoment === "ideas"
-              ? "The band has ideas"
-              : bandMoment === "sent"
-                ? "Request sent — check the conversation"
-                : "The band is thinking…"}
-          </strong>
-          <div className="jam-band-roster">
-            {BANDMATE_AUTHORS.map((author) => (
-              <span
-                key={author}
-                data-done={bandmateDone.has(author) || undefined}
-              >
-                {author}
-                {bandmateDone.has(author) && <IconCheck size={14} />}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      <div
+        ref={setActivityHost}
+        hidden={inspectorOpen}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      />
       <AgentPanel
         key={sessionId}
         className="jam-band-chat"
@@ -1282,74 +1226,88 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         showCollapseButton={false}
         composerAutoFocus={false}
         emptyStateDisplay="hidden"
-        composerPlaceholder="Tell the band what you have in mind…"
+        composerPlaceholder="Tell the band…"
         suggestions={[]}
         threadFooterSlot={
           <>
-            <IdeaTray
-              root={session.root}
-              scale={session.scale}
-              ideas={data.ideas}
-              tracks={data.tracks}
-              auditionId={auditionId}
-              editingId={editing?.ideaId ?? null}
-              draft={editing?.draft ?? null}
-              highlightId={highlightIdeaId}
-              playing={playing}
-              busy={keepM.isPending || tossM.isPending}
-              onAudition={(id) => {
-                setAuditionId(id);
-                if (id && !engine.playing) void togglePlay();
-                else if (!id) {
-                  engine.stop();
-                  setPlaying(false);
-                }
-              }}
-              onKeep={onKeep}
-              onToss={onToss}
-              onEdit={onEdit}
-              onCancelEdit={cancelEditing}
-              onKeepEdited={onKeepEdited}
-              onTogglePlay={() => void togglePlay()}
+            <BandActivity
+              target={activityHost}
+              threadId={bandThreadId}
+              team={bandMoment !== null}
+              pending={bandMoment === "working"}
+              done={bandmateDone}
+              {...requestBars}
+              onBusyChange={setControllerBusy}
             />
-            {(data.comments ?? []).length > 0 && (
-              <section
-                className="jam-band-notes"
-                aria-label="Bar notes and replies"
-              >
-                <h3>Notes from the loop</h3>
-                {(data.comments ?? []).map((comment) => (
-                  <article className="jam-band-note" key={comment.id}>
-                    <span className="jam-label">
-                      Bar {comment.bar + 1} · You
-                    </span>
-                    <p>{comment.text}</p>
-                    {comment.reply ? (
-                      <div className="jam-comment__reply">
-                        <strong className="jam-author">
-                          {comment.replyAuthor ?? "Bandmate"}
-                        </strong>
-                        <p>{comment.reply}</p>
-                        {comment.ideaId && (
-                          <button
-                            className="jam-text-button"
-                            onClick={() => seeIdea(comment.ideaId!)}
-                          >
-                            See idea
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="jam-label">Waiting for a bandmate</span>
-                    )}
-                  </article>
-                ))}
-              </section>
-            )}
-            <p className="jam-band-taste">
-              The band remembers:{" "}
-              {taste?.summary ?? "your taste grows as you use and skip ideas."}
-            </p>{" "}
+            <div hidden={inspectorOpen}>
+              <IdeaTray
+                root={session.root}
+                scale={session.scale}
+                ideas={data.ideas}
+                tracks={data.tracks}
+                auditionId={auditionId}
+                editingId={editing?.ideaId ?? null}
+                draft={editing?.draft ?? null}
+                highlightId={highlightIdeaId}
+                playing={playing}
+                busy={keepM.isPending || tossM.isPending}
+                onAudition={(id) => {
+                  setAuditionId(id);
+                  if (id && !engine.playing) void togglePlay();
+                  else if (!id) {
+                    engine.stop();
+                    setPlaying(false);
+                  }
+                }}
+                onKeep={onKeep}
+                onToss={onToss}
+                onEdit={onEdit}
+                onCancelEdit={cancelEditing}
+                onKeepEdited={onKeepEdited}
+                onTogglePlay={() => void togglePlay()}
+              />
+              {(data.comments ?? []).length > 0 && (
+                <section
+                  className="jam-band-notes"
+                  aria-label="Bar notes and replies"
+                >
+                  <h3>Notes from the loop</h3>
+                  {(data.comments ?? []).map((comment) => (
+                    <article className="jam-band-note" key={comment.id}>
+                      <span className="jam-label">
+                        Bar {comment.bar + 1} · You
+                      </span>
+                      <p>{comment.text}</p>
+                      {comment.reply ? (
+                        <div className="jam-comment__reply">
+                          <strong className="jam-author">
+                            {comment.replyAuthor ?? "Bandmate"}
+                          </strong>
+                          <p>{comment.reply}</p>
+                          {comment.ideaId && (
+                            <button
+                              className="jam-text-button"
+                              onClick={() => seeIdea(comment.ideaId!)}
+                            >
+                              See idea
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="jam-label">
+                          Waiting for a bandmate
+                        </span>
+                      )}
+                    </article>
+                  ))}
+                </section>
+              )}
+              <p className="jam-band-taste">
+                The band remembers:{" "}
+                {taste?.summary ??
+                  "your taste grows as you use and skip ideas."}
+              </p>{" "}
+            </div>
           </>
         }
       />
@@ -1410,7 +1368,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
               Sound settings
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={openChat}>
-              Full agent inspector
+              How the band works
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setHelpOpen(true)}>
               Shortcuts

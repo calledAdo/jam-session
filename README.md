@@ -27,10 +27,10 @@ enforced in code, not just in the prompt.
 
 - **Sketch** one bar per screen, in plain words: Speed, Mood (Sad/Happy), Bounce,
   named chords. Start from Chill, Dance or an empty page.
-- **I'm stuck — help me**: the band listens in parallel and each bandmate
+- **Jam with the band**: the band listens in parallel and each bandmate
   pitches one idea with a before/after preview.
-- **Quick asks**: Busier, Calmer, Darker, Brighter, Build up, Surprise me, or
-  type anything ("give me a swing knob" renders a live control in chat).
+- **Tell the band…**: type what you have in mind ("give me a swing knob"
+  renders a live control in chat).
 - **Notes on bars**: "needs to build into the drop", and the right bandmate
   replies on the page with an idea for that bar.
 - **Tweak before you use**: edit the band's idea on the grid; history records
@@ -83,8 +83,8 @@ machine except calls to your AI provider.
 
 ### AI provider
 
-The grid, variations, tray and history work without AI. Unstick me, Ask
-bandmate, chat and the daily spark need a model. Set **one** of these in `.env`:
+The grid, variations, tray and history work without AI. Jam with the band,
+Ask bandmate, chat and the daily spark need a model. Set **one** of these in `.env`:
 
 - **Anthropic:** `ANTHROPIC_API_KEY=…`
 - **OpenAI:** `OPENAI_API_KEY=…`
