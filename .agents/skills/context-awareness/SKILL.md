@@ -325,3 +325,9 @@ The mail template demonstrates these patterns working together:
 - **real-time-sync** — How `useDbSync` delivers app-state changes to the UI
 - **actions** — How to create the `view-screen` and `navigate` actions
 - **storing-data** — Application-state is one of the core SQL stores
+
+## Jam Session context
+
+Before acting call `view-screen` and read current application-state `selection`. It returns `navigation`, `selection` ({sessionId,tracks,barStart,barEnd}, 0-based inclusive bars), `transport` ({sessionId,bpm,root,scale,swing,kit,bars,playing}), `audition`, and a session summary when open. Use selected bars/tracks without asking which bars. From external messaging channels, use the user's most recent session unless another is named. Open notes and edited ideas are background context unless the latest request asks about them.
+
+The band panel's primary composer says “Tell the band…”. “Jam with the band” is secondary and sends internal “Unstick me”; do not add keyword prompt chips or empty-state suggestions.
