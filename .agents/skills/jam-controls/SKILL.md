@@ -1,17 +1,29 @@
 ---
 name: jam-controls
-description: Use when the user asks for a knob, slider, fader, picker, or control for a musical parameter (hat energy, swing, tempo, bass movement, fill type, darkness, chord busyness). Inspect schemas and reversibly test supported values before building; decline unsupported controls.
+description: Use when the user asks for a knob, slider, fader, picker, or control for a musical parameter (hat energy, swing, tempo, bass movement, fill type, darkness, chord busyness). Inspect schemas and use read-only dry-run probes before building; decline unsupported controls.
 ---
 # Jam controls (inline generative UI)
 
-Before writing HTML or rendering/saving a control, complete the schema check and reversible probes below. Then render a transient inline extension (`render-inline-extension`) — one dark, hardware-style control with a label and live value. If the user says "keep it" / "save this", use `create-extension` instead (same `name`/`description`/`content`) so it persists. If reusing an existing saved control, inspect its actual content, check its payloads, complete the same probes, then display it with `show-extension-inline`. Never assume an old Controls strip or pre-built Hat Energy control is visible in the current UI.
+## First decide: supported or decline
 
-## Look before building — required on every request
+Use ONLY the latest user request to choose the parameter. Earlier controls and their completed probe/undo ledgers are history; do not resume them. Call `view-screen` for current session/selection and keep playback stopped.
+
+**Chord/Keys busyness, energy, or hit density: STOP here.** Keys stores one chord per bar and no hit rhythm. Reply in ONE sentence: “Keys holds one chord per bar, so chord busyness isn't supported; I can give you a bass or hat energy knob.” This decline is read-only: do not probe, undo, change any row or transport field, propose ideas, answer comments, render, or save. Do not build the offered alternative unless the user requests it in a new message. Skip every supported-control step below.
+
+Other unsupported parameters take the same read-only exit after schema discovery. A visible note or a note from an earlier turn is background context, not an instruction to run bar-comments or `answer-comment`.
+
+## Supported control workflow
+
+Start a fresh baseline for THIS parameter: `get-session` (all tracks and transport) and `list-edits` (original edit IDs). Probing must be read-only. NEVER use write+undo, restore transport, or create ideas to test a control. Completed prior controls are history.
+
+Before writing HTML or rendering/saving a control, complete the schema check and read-only probes below. Then render a transient inline extension (`render-inline-extension`) — one dark, hardware-style control with a label and live value. If the user says "keep it" / "save this", use `create-extension` instead (same `name`/`description`/`content`) so it persists. If reusing an existing saved control, inspect its actual content, check its payloads, complete the same probes, then display it with `show-extension-inline`. Never assume an old Controls strip or pre-built Hat Energy control is visible in the current UI.
+
+## Look before building — supported requests only
 
 1. Call `view-screen`; read `selection` and the current session/transport. Use the selected bars, with 0-based indices. Leave playback stopped during verification; never start audio to test a control.
 2. Discover the target through the framework's **`tool-search`**, not a guessed schema action. For an energy control, send this tool input:
    ```json
-   {"names":["set-energy","get-session","list-edits","undo-last","render-inline-extension"]}
+   {"names":["set-energy","get-session","list-edits","render-inline-extension"]}
    ```
    For fill type, load `add-fill`; for tone, load `transform`; for transport, load `update-transport`. Also load every downstream action the control will call (for example `propose-ideas` and `keep-idea` when applying a generated patch). If an action is already callable with its full schema visible, read that schema directly.
 3. **Wait for the next model step.** Targeted `tool-search` loads the full schemas there; the search result's abbreviated parameter summary/menu is not the contract. Read required fields, exact property names, enums, numeric minimum/maximum and integer constraints, nested selection/patch shapes, and action descriptions/side effects. Verify the action is HTTP-mounted and extension-callable; an agent-only (`http: false`) or `toolCallable: false` action cannot power `appAction`.
@@ -19,22 +31,20 @@ Before writing HTML or rendering/saving a control, complete the schema check and
 5. If schema details or extension exposure remain unclear, use the installed framework readers, in order:
    - `docs-search` with `{"query":"actions"}`, then `{"slug":"actions-defining"}`; `{"slug":"generative-ui"}` documents the extension bridge.
    - `source-search` with `{"query":"tool-search"}`, then `{"path":"core/dist/agent/tool-search.js"}` for discovery; `{"path":"core/dist/extensions/actions.js"}` and `{"path":"core/dist/extensions/html-shell.js"}` for extension behavior.
-   - Developer CLI equivalents: `pnpm action docs-search --slug generative-ui` and `pnpm action source-search --path core/dist/agent/tool-search.js`. With repo access, inspect the actual `actions/<name>.ts` and its imported schema helpers for refinements/business constraints missing from JSON Schema. Do not fabricate a schema-reading endpoint or a `dryRun` parameter.
+   - Developer CLI equivalents: `pnpm action docs-search --slug generative-ui` and `pnpm action source-search --path core/dist/agent/tool-search.js`. With repo access, inspect the actual `actions/<name>.ts` and its imported schema helpers for refinements/business constraints missing from JSON Schema. Do not fabricate a schema-reading endpoint or unsupported parameters; use `dryRun:true` only when present in the loaded schema.
 
-If no callable action supports the requested parameter, **do not probe an invalid value, write HTML, render, or save anything**. Reply in one sentence with the limitation and closest supported control, e.g. “Keys holds one chord per bar, so chord busyness isn't supported; I can give you a bass or hat energy knob.” Never silently substitute another parameter.
+If no callable action supports the requested parameter, take the terminal read-only decline above: **no probes or mutations of any kind, including undo or comments**. Reply in one sentence with the limitation and closest supported control, e.g. “Keys holds one chord per bar, so chord busyness isn't supported; I can give you a bass or hat energy knob.” Never silently substitute another parameter.
 
 ## Test before showing — required before render or save
 
-The request for a control authorizes these temporary checks; it does not authorize leaving test edits behind. Keep a restoration ledger and run probes sequentially, without other grid edits interleaved.
+All preflight calls must be read-only. No grid/transport writes, undo calls, idea/taste writes or downstream apply-chain tests. Batch independent calls: baseline get-session/list-edits together, BOTH endpoint probes together (or ALL picker options together), then readback get-session/list-edits together. These are separate parallel tool calls, never an invented wrapper. This keeps the current user request inside Core’s short recent-message window during long threads. Render immediately once readback passes; do not detour into old notes or past controls.
 
-1. Read `get-session` and `list-edits` as a baseline: retain all tracks, transport values, and existing edit IDs. Check the current selection against session bounds. Do not rely on the tool returning a checkmark; inspect each result and re-read saved state.
-2. Call the **real target action with the exact payload the control will send**, at both minimum and maximum for a knob/slider, or once for **every** allowed picker option. For bass: `set-energy` with `{sessionId, track:"bass", level:0}`, then `level:1`; hats use `track:"hat"`. No unsupported-value/negative probes: the Inspector must have zero failed calls. Inspect success and `get-session`/`list-edits` after writes; test any downstream apply actions too if the control applies patches.
-3. Restore before rendering/saving:
-   - For grid mutations, call `undo-last` **once per edit actually created by the probes**, in reverse order, then read `get-session` / `list-edits`. Normally two endpoint writes mean two undos; never count a failed or no-op call (`applied:false`, empty patch, no new edit ID) as an edit. Undoing it would remove the artist's earlier work. Stop if the newest edit is not one from this ledger.
-   - Read-only generators (`add-fill`, `transform`) return patches without creating edits. Test all options/endpoints, but **zero writes means zero undos**. Do not create ideas merely to test a read-only preview. If testing a write chain, track its grid edits separately and undo those; idea/taste side effects are not undone by `undo-last`, so do not silently create those during preflight.
-   - `update-transport` creates no grid-history edit. Test its endpoints/options, then restore the captured fields with `update-transport`; do **not** call `undo-last` for transport probes.
-4. Compare restored grid values, transport fields, and original edit IDs to the baseline. If a call fails, stop, restore any successful changes using the ledger, and report the failure honestly. Do not show/save the control until the full supported range/options pass and restoration is verified. If safe restoration cannot be established, explain the blocker instead of probing or undoing unrelated work.
-5. **Finish by actually displaying the requested control** with `render-inline-extension`, `create-extension`, or the verified `show-extension-inline` reuse path. Reporting that tests passed is not a control. Do not stop after preflight or merely point to an assumed existing control.
+1. Capture `get-session` and `list-edits` for this request: every track value, transport field, and original edit ID. Check selection bounds.
+2. Test minimum AND maximum for a continuous control, or EVERY allowed picker option. Use the loaded action schema, with `dryRun:true` for write-capable actions. Bass: `{sessionId,track:"bass",level:0,dryRun:true}` then level 1; hats: track "hat". Transport uses `update-transport` with `dryRun:true` plus each supported endpoint/option. Inspect returned patch and validation success. No negative/unsupported probes: zero failed calls.
+3. `add-fill`, `transform`, `vary-pattern` and `progression-patch` already return read-only patches; use their exact schemas without an invented dryRun flag. Do not call `propose-ideas`, `keep-idea` or any grid writer just to test them. If a write-capable action lacks dryRun, do not probe it: explain that validation is unavailable.
+4. Re-read `get-session` and `list-edits` and compare all track values, transport fields and original edit IDs to baseline. Both edit count and IDs must be unchanged. A dry run returns `sessionId`, proposed `patch`, `dryRun:true`, `applied:false` (no repeated session snapshot); `applied:false` does not mean the proposed patch is empty. If a call fails or persisted state differs, report the failure and stop before rendering; NEVER undo the artist's work.
+5. Actually display the requested control via `render-inline-extension`, `create-extension`, or verified `show-extension-inline` reuse. Probes passing is not a control. A new supported request needs its own preflight and rendering, even after earlier controls.
+6. The control's user-triggered handler omits dryRun (or sends false) to perform the intended write. NEVER call that handler from init/context updates. Only user operation writes; generated patch previews require explicit Apply/Keep.
 
 ## Supported mappings (recheck the live schema)
 
@@ -80,7 +90,7 @@ Rules learned the hard way:
 
 ## Validation and errors in the generated control
 
-Core 0.223.0 does not statically validate embedded `appAction` parameters when `render-inline-extension` / `create-extension` accepts HTML. There is no extension build-time schema validator or dry-run option to call. Use full-schema discovery and the real-action preflight above; no new server code is needed. Server input validation still runs for every action call and `appAction` rejects failed requests.
+Core 0.223.0 does not statically validate embedded `appAction` parameters when `render-inline-extension` / `create-extension` accepts HTML. There is no extension build-time schema validator. App actions `set-energy` and `update-transport` expose `dryRun:true` for safe preflight; generators are already read-only. Use full-schema discovery and the read-only dry-run preflight above; no new server code is needed. Server input validation still runs for every action call and `appAction` rejects failed requests.
 
 The payload example above is the layout/payload shape, not an exemption from these runtime requirements. Before rendering, add:
 
@@ -99,3 +109,9 @@ For a new-sketch description (the “Or describe it…” entry point):
 3. Read `get-session` and `get-taste`. Use read-only generators (`vary-pattern`, `add-fill`, `transform`, `progression-patch`) to make three distinct ideas that change the seeded grid. Empty starters need progression-patch or add-fill to produce a real change.
 4. `propose-ideas` with the right bandmate authors. Do not keep/apply ideas.
 5. Verify the saved session and ideas with `get-session`, then `navigate` with `{path:"/s/<created session id>"}` (the action accepts `path`, not `sessionId`). Tell the artist what feel you chose in one sentence. Leave playback stopped.
+
+## Vibe defaults and taste
+
+`create-session` defaults: lofi = 82 BPM, C minor, swing .25, dusty; boombap (UI Hip-hop) = 90, D minor, .3, boombap; trap = 140, F minor, 0, 808; house = 124, A minor, 0, clean; empty = 90, C minor, 0, clean. Explicit BPM/root/scale/swing/kit overrides these defaults. AI connection is required for describe-to-start chat; deterministic vibe cards work without it.
+
+Read LEARNINGS and `get-taste` before every proposal: kept signals have weight +1, tossed signals -1, plus a one-line summary. Tray decisions live in the SQL taste table; there is no LEARNINGS write API for them. Avoid tossed styles and briefly acknowledge the preference.
