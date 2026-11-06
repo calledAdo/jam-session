@@ -10,10 +10,14 @@ Map the control to an action:
 | Control | On change (debounced ~250ms) |
 |---|---|
 | swing, tempo, key | `update-transport` |
-| "<row> energy/busyness" | `set-energy` with `track` (kick/snare/hat) and `level` 0–1 |
+| "<row> energy/busyness" | `set-energy` with `track` (kick/snare/hat/bass) and `level` 0–1 |
 | darkness/brightness | `transform` → `keep-idea` (direct apply is OK here; the user is dragging) |
 
 Never call the LLM from the control. One control per request unless asked.
+
+Only build controls for parameters supported by the target action's current schema; inspect it before rendering. Never invent action names, tracks, or arguments. `set-energy` supports exactly `kick`, `snare`, `hat`, and `bass`. Keys energy is unsupported because the keys row stores one chord per bar and has no chord-hit rhythm; explain this and offer a supported bass/drum energy or transport control instead.
+
+Bass energy uses bar-downbeat chord roots below 1/3, kick-following roots from 1/3, eighth notes with in-key octave/fifth movement from 2/3, and sixteenths from 5/6. Missing chords use the tonic; chromatic roots/fifths use the nearest in-key tone. The slider writes through the same undoable edit path as drums.
 
 ## Exact payload
 
@@ -32,7 +36,7 @@ Get the session id from `view-screen` / the current route (`/s/:id`) and pass it
 Rules learned the hard way:
 - Register components inside `document.addEventListener('alpine:init', ...)`. Calling `Alpine.data(...)` bare in a body `<script>` fails (Alpine loads deferred), leaving `x-data="name"` undefined.
 - `appAction(name, params)` POSTs `/_agent-native/actions/<name>`; for other params swap the action and args (e.g. `update-transport` `{sessionId, swing}`).
-- Swap `track`/label for snare or kick; for swing use `update-transport` with `swing` 0–1.
+- Swap `track`/label for snare, kick, or bass in both the context and `appAction` args; for swing use `update-transport` with `swing` 0–1.
 - Reference implementation: `app/components/jam/controls/hat-energy.ts` (also seeded on first run by `ControlsStrip`).
 
 ## Kits and describe-to-start

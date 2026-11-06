@@ -5,8 +5,10 @@ import {
   ENERGY_SIXTEENTH_THRESHOLD,
   energyHitsPerBar,
   setEnergy,
+  setBassEnergy,
 } from "./energy";
-import type { DrumSteps } from "./types";
+import { degreeToNote, noteToMidi, SCALE_INTERVALS, scaleNotes } from "./notes";
+import type { BassSteps, DrumSteps } from "./types";
 
 const BARS = 2;
 
@@ -116,5 +118,129 @@ describe("setEnergy", () => {
     expect(energyHitsPerBar(0)).toBe(4);
     expect(energyHitsPerBar(0.5)).toBe(8);
     expect(energyHitsPerBar(1)).toBe(16);
+  });
+});
+
+describe("setBassEnergy", () => {
+  const harmony = {
+    root: "C",
+    scale: "minor",
+    keys: ["i", "VI"],
+    kick: Array.from({ length: 32 }, (_, i) =>
+      [0, 7, 10].includes(i % 16) ? 3 : 0,
+    ),
+  };
+  const bass = (): BassSteps => new Array(32).fill(null);
+  const hits = (steps: BassSteps) =>
+    steps.flatMap((note, i) => (note === null ? [] : [i]));
+
+  it("places only chord roots on bar downbeats at low energy", () => {
+    const result = setBassEnergy(new Array(32).fill(5), 0, 2, harmony);
+    expect(hits(result)).toEqual([0, 16]);
+    expect([result[0], result[16]]).toEqual([1, 6]);
+  });
+
+  it("follows even syncopated kick hits with chord roots at mid energy", () => {
+    const result = setBassEnergy(bass(), 0.5, 2, harmony);
+    expect(hits(result)).toEqual([0, 7, 10, 16, 23, 26]);
+    expect(result.slice(0, 16).filter((n) => n !== null)).toEqual([1, 1, 1]);
+    expect(result.slice(16).filter((n) => n !== null)).toEqual([6, 6, 6]);
+  });
+
+  it("adds eighths before sixteenths, preserving bar and kick anchors", () => {
+    const result = setBassEnergy(bass(), 2 / 3, 2, harmony);
+    expect(hits(result).slice(0, 9)).toEqual([0, 2, 4, 6, 7, 8, 10, 12, 14]);
+    expect(result[0]).toBe(1);
+    expect(result[2]).toBe(8); // octave of i
+    expect(result[6]).toBe(5); // fifth of i
+    expect(result[16]).toBe(6);
+    expect(result[18]).toBe(13); // octave of VI
+    expect(result[22]).toBe(10); // fifth of VI, in the next octave
+    expect(hits(setBassEnergy(bass(), 1, 2, harmony))).toHaveLength(32);
+  });
+
+  it.each(Object.keys(SCALE_INTERVALS))(
+    "stays in %s for every root, including chromatic chords",
+    (scale) => {
+      for (const root of ["C", "F#", "Bb"]) {
+        const chords = [
+          "i",
+          "ii°",
+          "III",
+          "iv",
+          "V7",
+          "VI",
+          "VII",
+          "bII",
+          "#IV",
+        ];
+        const notes = new Set(
+          scaleNotes(root, scale, 2).map((n) => noteToMidi(n) % 12),
+        );
+        const result = setBassEnergy(
+          new Array(chords.length * 16).fill(null),
+          1,
+          chords.length,
+          {
+            ...harmony,
+            root,
+            scale,
+            keys: chords,
+          },
+        );
+        for (const degree of result) {
+          expect(Number.isInteger(degree)).toBe(true);
+          expect(degree).toBeGreaterThan(0);
+          expect(
+            notes.has(noteToMidi(degreeToNote(root, scale, degree!, 2)) % 12),
+          ).toBe(true);
+        }
+      }
+    },
+  );
+
+  it("maps pentatonic VI and VII to their actual in-key roots", () => {
+    const result = setBassEnergy(bass(), 0, 2, {
+      ...harmony,
+      scale: "pentatonic minor",
+      keys: ["VI", "VII"],
+    });
+    // Ab projects to G; Bb is pentatonic degree 5, not degree 7.
+    expect([result[0], result[16]]).toEqual([4, 5]);
+  });
+
+  it("uses tonic for empty, missing, or invalid chord labels and anchors a silent kick", () => {
+    for (const keys of [[], ["", "nonsense"]]) {
+      const result = setBassEnergy(bass(), 0.5, 2, {
+        ...harmony,
+        keys,
+        kick: [],
+      });
+      expect(hits(result)).toEqual([0, 16]);
+      expect([result[0], result[16]]).toEqual([1, 1]);
+    }
+  });
+
+  it("is deterministic, preserves inputs and tail, and clamps invalid levels/bars", () => {
+    const input = new Array(35).fill(3);
+    const snapshot = structuredClone({ input, harmony });
+    const first = setBassEnergy(input, 0.5, 1, harmony);
+    expect(first).toEqual(setBassEnergy(input, 0.5, 1, harmony));
+    expect(first).not.toBe(input);
+    expect(first.slice(16)).toEqual(input.slice(16));
+    expect({ input, harmony }).toEqual(snapshot);
+    for (const level of [-1, NaN, Infinity]) {
+      expect(setBassEnergy(input, level, 2, harmony)).toEqual(
+        setBassEnergy(input, 0, 2, harmony),
+      );
+    }
+    expect(setBassEnergy(input, 2, 2, harmony)).toEqual(
+      setBassEnergy(input, 1, 2, harmony),
+    );
+    for (const bars of [0, -1, NaN])
+      expect(setBassEnergy(input, 1, bars, harmony)).toEqual(input);
+    expect(setBassEnergy(input, 1, 100, harmony).slice(32)).toEqual(
+      input.slice(32),
+    );
   });
 });
