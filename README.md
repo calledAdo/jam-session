@@ -5,7 +5,7 @@ music ideas, with an AI band in the margins.
 
 Built with [Agent-Native](https://github.com/BuilderIO/agent-native) for the
 Builder.io Agent-Native Hackathon (Nov 2026). Demo:
-[clips.agent-native.com/share/LLO4rxmRMsg6](https://clips.agent-native.com/share/LLO4rxmRMsg6)
+[clips.agent-native.com/share/f0CaSA2SqnOd](https://clips.agent-native.com/share/f0CaSA2SqnOd)
 
 ## Why
 
