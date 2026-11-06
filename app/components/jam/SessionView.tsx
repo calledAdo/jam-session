@@ -40,6 +40,7 @@ import {
   BANDMATE_AUTHORS,
   type BandmateAuthor,
 } from "@/lib/jam/band-moment";
+import { createBandChatTransport } from "@/lib/jam/chat-transport";
 import {
   applyPatchToTracks,
   cycleVelocity,
@@ -1180,6 +1181,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         className="jam-band-chat"
         onReadyChange={setBandReady}
         storageKey={`jam-session:${sessionId}`}
+        createTransport={createBandChatTransport}
         browserTabId={TAB_ID}
         scope={{
           type: "jam-session",
@@ -1187,7 +1189,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           label: session.name,
           context: `Jam Session ${sessionId}. Read view-screen and get-taste before proposing. Propose ideas; only apply when explicitly asked.`,
         }}
-        isolateHistoryByScope
+        isolateHistoryByScope={!inspectorOpen}
         chatOnly={!inspectorOpen}
         showHeader={inspectorOpen}
         showTabBar={inspectorOpen}

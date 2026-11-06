@@ -18,6 +18,8 @@ Start a fresh baseline for THIS parameter: `get-session` (all tracks and transpo
 
 Before writing HTML or rendering/saving a control, complete the schema check and read-only probes below. Then render a transient inline extension (`render-inline-extension`) — one dark, hardware-style control with a label and live value. If the user says "keep it" / "save this", use `create-extension` instead (same `name`/`description`/`content`) so it persists. If reusing an existing saved control, inspect its actual content, check its payloads, complete the same probes, then display it with `show-extension-inline`. Never assume an old Controls strip or pre-built Hat Energy control is visible in the current UI.
 
+Render exactly once per request: these actions already display their result; do not follow render/create with show-extension-inline. Use the app's inherited dark theme tokens: `bg-card text-card-foreground border-border`, `bg-muted text-muted-foreground`, and `bg-primary text-primary-foreground` (CSS equivalents are `hsl(var(--card))`, etc.). Do not add white/light outer backgrounds or redefine theme tokens. Keep one labeled control with its live value.
+
 ## Look before building — supported requests only
 
 1. Call `view-screen`; read `selection` and the current session/transport. Use the selected bars, with 0-based indices. Leave playback stopped during verification; never start audio to test a control.

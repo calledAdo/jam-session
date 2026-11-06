@@ -1,3 +1,26 @@
+/* Core's iframe theme bridge reads documentElement, not the band subtree.
+   Supply the same HSL-channel tokens to both while a Jam page is mounted. */
+:root:has(.jam-root),
+.jam-root {
+  --background: 40 8% 8%;
+  --foreground: 40 33% 93%;
+  --card: 36 8% 12%;
+  --card-foreground: 40 33% 93%;
+  --popover: 34 11% 13%;
+  --popover-foreground: 40 33% 93%;
+  --muted: 34 9% 15%;
+  --muted-foreground: 38 12% 70%;
+  --secondary: 34 9% 15%;
+  --secondary-foreground: 40 33% 93%;
+  --border: 37 9% 28%;
+  --input: 37 9% 28%;
+  --accent: 38 9% 17%;
+  --accent-foreground: 40 33% 93%;
+  --primary: 185 70% 61%;
+  --primary-foreground: 40 8% 8%;
+  --ring: 185 70% 61%;
+}
+
 /* Jam Session. Cyan is the artist; amber is the band. Start at phone width. */
 .jam-root {
   --jam-bg: #151412;
@@ -13,20 +36,6 @@
   --jam-coral: #f2b64a;
   --jam-sky: #f2b64a;
   --jam-leaf: #f2b64a;
-  --background: #151412;
-  --foreground: #f3efe7;
-  --card: #201e1b;
-  --card-foreground: #f3efe7;
-  --popover: #24211d;
-  --popover-foreground: #f3efe7;
-  --muted: #2a2723;
-  --muted-foreground: #bcb5a9;
-  --border: #4f4a42;
-  --input: #4f4a42;
-  --accent: #302d28;
-  --accent-foreground: #f3efe7;
-  --primary: #55d6e1;
-  --primary-foreground: #151412;
   box-sizing: border-box;
   min-width: 0;
   min-height: 100%;
@@ -1293,6 +1302,12 @@
 }
 .jam-band-chat .agentkit-thread {
   min-width: 0;
+}
+.jam-band-chat [data-agent-native-custom-ui] iframe {
+  /* The sandbox starts with a light color scheme. Match its embedding canvas
+     explicitly so transparent document padding cannot paint white. */
+  color-scheme: normal;
+  background: hsl(var(--card));
 }
 .jam-band-activity {
   display: grid;
